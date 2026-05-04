@@ -1312,20 +1312,23 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
         const targetR = planetRByNid.get(toNid) || 8;
         const dx = b.x - a2.x, dy = b.y - a2.y;
         const d = Math.hypot(dx, dy) || 1;
-        const x2 = hasType ? b.x - dx / d * (targetR + 3) : b.x;
-        const y2 = hasType ? b.y - dy / d * (targetR + 3) : b.y;
+        const tipX = hasType ? b.x - dx / d * (targetR + 2) : b.x;
+        const tipY = hasType ? b.y - dy / d * (targetR + 2) : b.y;
         let arrowPath = null;
+        let lineEndX = tipX, lineEndY = tipY;
         if (hasType) {
           const ang = Math.atan2(dy, dx);
-          const arrSize = 6;
-          const baseX = x2 - arrSize * Math.cos(ang);
-          const baseY = y2 - arrSize * Math.sin(ang);
-          const w = arrSize * 0.55;
-          const w1x = baseX + w * Math.sin(ang);
-          const w1y = baseY - w * Math.cos(ang);
-          const w2x = baseX - w * Math.sin(ang);
-          const w2y = baseY + w * Math.cos(ang);
-          arrowPath = `M${x2},${y2} L${w1x},${w1y} L${w2x},${w2y} Z`;
+          const arrLen = 8;
+          const arrWide = 4;
+          const baseX = tipX - arrLen * Math.cos(ang);
+          const baseY = tipY - arrLen * Math.sin(ang);
+          const w1x = baseX + arrWide * Math.sin(ang);
+          const w1y = baseY - arrWide * Math.cos(ang);
+          const w2x = baseX - arrWide * Math.sin(ang);
+          const w2y = baseY + arrWide * Math.cos(ang);
+          arrowPath = `M${tipX},${tipY} L${w1x},${w1y} L${w2x},${w2y} Z`;
+          lineEndX = baseX;
+          lineEndY = baseY;
         }
         return /* @__PURE__ */ jsxs("g", { children: [
           /* @__PURE__ */ jsx(
@@ -1333,8 +1336,8 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
             {
               x1: a2.x,
               y1: a2.y,
-              x2,
-              y2,
+              x2: lineEndX,
+              y2: lineEndY,
               stroke: "#fff",
               strokeOpacity: op,
               strokeWidth: sw,

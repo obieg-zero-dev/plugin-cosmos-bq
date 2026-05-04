@@ -535,25 +535,30 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
           const targetR = planetRByNid.get(toNid) || 8
           const dx = b.x - a.x, dy = b.y - a.y
           const d = Math.hypot(dx, dy) || 1
-          const x2 = hasType ? b.x - (dx / d) * (targetR + 3) : b.x
-          const y2 = hasType ? b.y - (dy / d) * (targetR + 3) : b.y
-          // Strzałka jako <path> (NIE marker) — żeby dziedziczyć opacity linii.
+          // tipX/tipY = ostry koniec strzałki (przy krawędzi planety target)
+          const tipX = hasType ? b.x - (dx / d) * (targetR + 2) : b.x
+          const tipY = hasType ? b.y - (dy / d) * (targetR + 2) : b.y
+          // Strzałka jako <path>: trójkąt z tip→base, linia kończy się PRZY BAZIE (nie wchodzi w strzałkę).
           let arrowPath: string | null = null
+          let lineEndX = tipX, lineEndY = tipY
           if (hasType) {
             const ang = Math.atan2(dy, dx)
-            const arrSize = 6
-            const baseX = x2 - arrSize * Math.cos(ang)
-            const baseY = y2 - arrSize * Math.sin(ang)
-            const w = arrSize * 0.55
-            const w1x = baseX + w * Math.sin(ang)
-            const w1y = baseY - w * Math.cos(ang)
-            const w2x = baseX - w * Math.sin(ang)
-            const w2y = baseY + w * Math.cos(ang)
-            arrowPath = `M${x2},${y2} L${w1x},${w1y} L${w2x},${w2y} Z`
+            const arrLen = 8     // długość strzałki
+            const arrWide = 4    // pół-szerokości u podstawy
+            const baseX = tipX - arrLen * Math.cos(ang)
+            const baseY = tipY - arrLen * Math.sin(ang)
+            const w1x = baseX + arrWide * Math.sin(ang)
+            const w1y = baseY - arrWide * Math.cos(ang)
+            const w2x = baseX - arrWide * Math.sin(ang)
+            const w2y = baseY + arrWide * Math.cos(ang)
+            arrowPath = `M${tipX},${tipY} L${w1x},${w1y} L${w2x},${w2y} Z`
+            // Linia kończy się tuż za bazą strzałki — żeby nie przechodzić przez trójkąt
+            lineEndX = baseX
+            lineEndY = baseY
           }
           return (
             <g key={e.id}>
-              <line x1={a.x} y1={a.y} x2={x2} y2={y2}
+              <line x1={a.x} y1={a.y} x2={lineEndX} y2={lineEndY}
                 stroke="#fff" strokeOpacity={op} strokeWidth={sw}
                 strokeDasharray={dashed ? '4 3' : undefined} />
               {arrowPath && (
