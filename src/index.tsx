@@ -510,8 +510,63 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
       )
     }
 
-    // Uwaga: warstwy używające <Label> MUSZĄ mieć `z` w deps —
-    // bo Label czyta z z closure, a memoized JSX trzyma stary fs gdy z się zmieni.
+    // Helper: opacity per stan focus mode. Eliminuje 4-poziomowy ternary z 2 warstw.
+    const edgeOpacity = (
+      focused: boolean, relevant: boolean,
+      idle: number, focusedOp: number, relevantOp: number, dim = 0.02
+    ): number => !neighborSet ? idle : focused ? focusedOp : relevant ? relevantOp : dim
+
+    // Helper: geometria strzałki (trójkąt path + offset linii o promień planety target).
+    const arrowGeom = (a: { x: number; y: number }, b: { x: number; y: number }, targetR: number) => {
+      const dx = b.x - a.x, dy = b.y - a.y
+      const d = Math.hypot(dx, dy) || 1
+      const tipX = b.x - (dx / d) * (targetR + 2)
+      const tipY = b.y - (dy / d) * (targetR + 2)
+      const ang = Math.atan2(dy, dx)
+      const arrLen = 8, arrWide = 4
+      const baseX = tipX - arrLen * Math.cos(ang)
+      const baseY = tipY - arrLen * Math.sin(ang)
+      const w1x = baseX + arrWide * Math.sin(ang)
+      const w1y = baseY - arrWide * Math.cos(ang)
+      const w2x = baseX - arrWide * Math.sin(ang)
+      const w2y = baseY + arrWide * Math.cos(ang)
+      return {
+        path: `M${tipX},${tipY} L${w1x},${w1y} L${w2x},${w2y} Z`,
+        lineEnd: { x: baseX, y: baseY },
+      }
+    }
+
+    // Wspólny komponent edge (struktural + kontekstowa). Zwraca line + opcjonalnie strzałkę + etykietę.
+    // Strzałka jako <path> (NIE marker) — żeby dziedziczyć opacity linii.
+    const Edge = (p: {
+      a: { x: number; y: number }; b: { x: number; y: number }
+      color: string; op: number; sw: number
+      dashed?: boolean
+      arrow?: { targetR: number }
+      label?: { text: string; color: string; size?: number; weight?: number }
+    }) => {
+      const arrow = p.arrow ? arrowGeom(p.a, p.b, p.arrow.targetR) : null
+      const lineEnd = arrow ? arrow.lineEnd : p.b
+      return (
+        <>
+          <line x1={p.a.x} y1={p.a.y} x2={lineEnd.x} y2={lineEnd.y}
+            stroke={p.color} strokeOpacity={p.op} strokeWidth={p.sw}
+            strokeLinecap="round"
+            strokeDasharray={p.dashed ? '4 3' : undefined} />
+          {arrow && (
+            <path d={arrow.path} fill={p.color} opacity={p.op} />
+          )}
+          {p.label && (
+            <Label x={(p.a.x + p.b.x) / 2} y={(p.a.y + p.b.y) / 2 - 4}
+              text={p.label.text} color={p.label.color}
+              size={p.label.size ?? 9} opacity={0.95}
+              weight={p.label.weight ?? 500} />
+          )}
+        </>
+      )
+    }
+
+    // Warstwy używające <Label> MUSZĄ mieć `z` w deps — Label czyta z z closure, memo trzyma stary fs.
     const orbitsLayer = useMemo(() => {
       return (
       <>
@@ -529,106 +584,70 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
       )
     }, [orbits, cx, cy, z])
 
-    // Krawędzie strukturalne — focus mode (idle blade, hover wyróżnia)
-    const edgesLayer = useMemo(() => {
-      return (
+    // Krawędzie strukturalne (typed = progression itp. mocne + strzałka, bez type = słabe poboczne)
+    const edgesLayer = useMemo(() => (
       <>
         {edges.map(e => {
           const fromNid = String(e.data.fromNid), toNid = String(e.data.toNid)
-          const a = positions.get(fromNid)
-          const b = positions.get(toNid)
+          const a = positions.get(fromNid), b = positions.get(toNid)
           if (!a || !b) return null
-          // Edge z TYPEM (progression, kontrast) = główna kierunkowa, mocniejsza.
-          // Bez type = poboczna luźna, słabsza.
           const hasType = !!e.data.type
-          const idleOp = hasType ? 0.6 : 0.15
-          const op = !neighborSet ? idleOp
-            : isEdgeFocused(fromNid, toNid) ? (hasType ? 0.95 : 0.7)
-            : isEdgeRelevant(fromNid, toNid) ? (hasType ? 0.5 : 0.25)
-            : 0.02
-          // Etykieta krawędzi: TYLKO w focus mode dla focused edge (idle ukryte → brak chaosu)
-          const showLabel = e.data.type && !!neighborSet && isEdgeFocused(fromNid, toNid)
-          // Krawędź dotykająca węzła kontekstowego → przerywana
-          const dashed = contextNids.has(fromNid) || contextNids.has(toNid)
-          const sw = hasType ? (op > 0.3 ? 2 : 1.5) : (op > 0.3 ? 1.5 : 1)
-          // Kolor edge = kolor gałęzi TARGET (do której krawędź prowadzi). Edge "wchodzi w" gałąź target.
-          const edgeColor = branchColorByNid.get(toNid) || '#94a3b8'
-          const targetR = planetRByNid.get(toNid) || 8
-          const dx = b.x - a.x, dy = b.y - a.y
-          const d = Math.hypot(dx, dy) || 1
-          const tipX = hasType ? b.x - (dx / d) * (targetR + 2) : b.x
-          const tipY = hasType ? b.y - (dy / d) * (targetR + 2) : b.y
-          // Strzałka jako <path> (NIE marker) — żeby dziedziczyć opacity linii, której marker nie respektuje.
-          let arrowPath: string | null = null
-          let lineEndX = tipX, lineEndY = tipY
-          if (hasType) {
-            const ang = Math.atan2(dy, dx)
-            const arrLen = 8
-            const arrWide = 4
-            const baseX = tipX - arrLen * Math.cos(ang)
-            const baseY = tipY - arrLen * Math.sin(ang)
-            const w1x = baseX + arrWide * Math.sin(ang)
-            const w1y = baseY - arrWide * Math.cos(ang)
-            const w2x = baseX - arrWide * Math.sin(ang)
-            const w2y = baseY + arrWide * Math.cos(ang)
-            arrowPath = `M${tipX},${tipY} L${w1x},${w1y} L${w2x},${w2y} Z`
-            lineEndX = baseX
-            lineEndY = baseY
-          }
+          const op = edgeOpacity(
+            isEdgeFocused(fromNid, toNid), isEdgeRelevant(fromNid, toNid),
+            hasType ? 0.6 : 0.15,
+            hasType ? 0.95 : 0.7,
+            hasType ? 0.5 : 0.25,
+          )
           return (
             <g key={e.id}>
-              <line x1={a.x} y1={a.y} x2={lineEndX} y2={lineEndY}
-                stroke={edgeColor} strokeOpacity={op} strokeWidth={sw}
-                strokeDasharray={dashed ? '4 3' : undefined} />
-              {arrowPath && (
-                <path d={arrowPath} fill={edgeColor} opacity={op} />
-              )}
-              {showLabel && (
-                <Label x={(a.x + b.x) / 2} y={(a.y + b.y) / 2 - 4}
-                  text={String(e.data.type)} color="#cbd5e1"
-                  size={9} opacity={0.9} weight={500} />
-              )}
+              <Edge
+                a={a} b={b}
+                color={branchColorByNid.get(toNid) || '#94a3b8'}
+                op={op}
+                sw={hasType ? (op > 0.3 ? 2 : 1.5) : (op > 0.3 ? 1.5 : 1)}
+                dashed={contextNids.has(fromNid) || contextNids.has(toNid)}
+                arrow={hasType ? { targetR: planetRByNid.get(toNid) || 8 } : undefined}
+                label={
+                  e.data.type && !!neighborSet && isEdgeFocused(fromNid, toNid)
+                    ? { text: String(e.data.type), color: '#cbd5e1' }
+                    : undefined
+                }
+              />
             </g>
           )
         })}
       </>
-      )
-    }, [edges, positions, neighborSet, focusNid, z, contextNids, planetRByNid, branchColorByNid])
+    ), [edges, positions, neighborSet, focusNid, z, contextNids, planetRByNid, branchColorByNid])
 
     // Krawędzie kontekstowe (lex co-occurrence) — kolor relacji, count<2 ukryte idle
-    const contextLayer = useMemo(() => {
-      return (
+    const contextLayer = useMemo(() => (
       <>
         {contextEdges.map((ce, i) => {
-          const a = positions.get(ce.from); const b = positions.get(ce.to)
+          const a = positions.get(ce.from), b = positions.get(ce.to)
           if (!a || !b) return null
-          const w = 1 + Math.min(ce.count - 1, 2) * 0.4
-          // Idle: count<2 ukryte, count>=2 blade
-          const idleOp = ce.count < 2 ? 0 : Math.min(0.12 + ce.strength * 0.15, 0.3)
-          const op = !neighborSet ? idleOp
-            : isEdgeFocused(ce.from, ce.to) ? Math.min(0.5 + ce.strength * 0.4, 0.9)
-            : isEdgeRelevant(ce.from, ce.to) ? 0.25
-            : 0.02
-          const showLabel = neighborSet && isEdgeFocused(ce.from, ce.to)
-          // Spójna reguła: krawędź dotykająca węzła kontekstowego → przerywana
-          const dashed = contextNids.has(ce.from) || contextNids.has(ce.to)
+          const op = edgeOpacity(
+            isEdgeFocused(ce.from, ce.to), isEdgeRelevant(ce.from, ce.to),
+            ce.count < 2 ? 0 : Math.min(0.12 + ce.strength * 0.15, 0.3),
+            Math.min(0.5 + ce.strength * 0.4, 0.9),
+            0.25,
+          )
           return (
             <g key={`ctx-${i}`}>
-              <line x1={a.x} y1={a.y} x2={b.x} y2={b.y}
-                stroke={ce.relColor} strokeOpacity={op}
-                strokeWidth={w} strokeLinecap="round"
-                strokeDasharray={dashed ? '4 3' : undefined} />
-              {showLabel && (
-                <Label x={(a.x + b.x) / 2} y={(a.y + b.y) / 2 - 4}
-                  text={`${ce.relLabel}${ce.count > 1 ? ` ·${ce.count}` : ''}`}
-                  color={ce.relColor} size={8} opacity={0.95} weight={600} />
-              )}
+              <Edge
+                a={a} b={b} color={ce.relColor} op={op}
+                sw={1 + Math.min(ce.count - 1, 2) * 0.4}
+                dashed={contextNids.has(ce.from) || contextNids.has(ce.to)}
+                label={
+                  !!neighborSet && isEdgeFocused(ce.from, ce.to)
+                    ? { text: `${ce.relLabel}${ce.count > 1 ? ` ·${ce.count}` : ''}`, color: ce.relColor, size: 8, weight: 600 }
+                    : undefined
+                }
+              />
             </g>
           )
         })}
       </>
-      )
-    }, [contextEdges, positions, neighborSet, focusNid, z, contextNids])
+    ), [contextEdges, positions, neighborSet, focusNid, z, contextNids])
 
     const highlightLines = useMemo(() => {
       if (!selectedLexId) return null

@@ -1278,6 +1278,58 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
         }
       );
     };
+    const edgeOpacity = (focused, relevant, idle, focusedOp, relevantOp, dim = 0.02) => !neighborSet ? idle : focused ? focusedOp : relevant ? relevantOp : dim;
+    const arrowGeom = (a2, b, targetR) => {
+      const dx = b.x - a2.x, dy = b.y - a2.y;
+      const d = Math.hypot(dx, dy) || 1;
+      const tipX = b.x - dx / d * (targetR + 2);
+      const tipY = b.y - dy / d * (targetR + 2);
+      const ang = Math.atan2(dy, dx);
+      const arrLen = 8, arrWide = 4;
+      const baseX = tipX - arrLen * Math.cos(ang);
+      const baseY = tipY - arrLen * Math.sin(ang);
+      const w1x = baseX + arrWide * Math.sin(ang);
+      const w1y = baseY - arrWide * Math.cos(ang);
+      const w2x = baseX - arrWide * Math.sin(ang);
+      const w2y = baseY + arrWide * Math.cos(ang);
+      return {
+        path: `M${tipX},${tipY} L${w1x},${w1y} L${w2x},${w2y} Z`,
+        lineEnd: { x: baseX, y: baseY }
+      };
+    };
+    const Edge = (p) => {
+      const arrow = p.arrow ? arrowGeom(p.a, p.b, p.arrow.targetR) : null;
+      const lineEnd = arrow ? arrow.lineEnd : p.b;
+      return /* @__PURE__ */ jsxs(Fragment, { children: [
+        /* @__PURE__ */ jsx(
+          "line",
+          {
+            x1: p.a.x,
+            y1: p.a.y,
+            x2: lineEnd.x,
+            y2: lineEnd.y,
+            stroke: p.color,
+            strokeOpacity: p.op,
+            strokeWidth: p.sw,
+            strokeLinecap: "round",
+            strokeDasharray: p.dashed ? "4 3" : void 0
+          }
+        ),
+        arrow && /* @__PURE__ */ jsx("path", { d: arrow.path, fill: p.color, opacity: p.op }),
+        p.label && /* @__PURE__ */ jsx(
+          Label,
+          {
+            x: (p.a.x + p.b.x) / 2,
+            y: (p.a.y + p.b.y) / 2 - 4,
+            text: p.label.text,
+            color: p.label.color,
+            size: p.label.size ?? 9,
+            opacity: 0.95,
+            weight: p.label.weight ?? 500
+          }
+        )
+      ] });
+    };
     const orbitsLayer = useMemo(() => {
       return /* @__PURE__ */ jsxs(Fragment, { children: [
         orbits.map((o) => /* @__PURE__ */ jsx(
@@ -1309,110 +1361,55 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
         ))
       ] });
     }, [orbits, cx, cy, z]);
-    const edgesLayer = useMemo(() => {
-      return /* @__PURE__ */ jsx(Fragment, { children: edges.map((e) => {
-        const fromNid = String(e.data.fromNid), toNid = String(e.data.toNid);
-        const a2 = positions.get(fromNid);
-        const b = positions.get(toNid);
-        if (!a2 || !b) return null;
-        const hasType = !!e.data.type;
-        const idleOp = hasType ? 0.6 : 0.15;
-        const op = !neighborSet ? idleOp : isEdgeFocused(fromNid, toNid) ? hasType ? 0.95 : 0.7 : isEdgeRelevant(fromNid, toNid) ? hasType ? 0.5 : 0.25 : 0.02;
-        const showLabel = e.data.type && !!neighborSet && isEdgeFocused(fromNid, toNid);
-        const dashed = contextNids.has(fromNid) || contextNids.has(toNid);
-        const sw = hasType ? op > 0.3 ? 2 : 1.5 : op > 0.3 ? 1.5 : 1;
-        const edgeColor = branchColorByNid.get(toNid) || "#94a3b8";
-        const targetR = planetRByNid.get(toNid) || 8;
-        const dx = b.x - a2.x, dy = b.y - a2.y;
-        const d = Math.hypot(dx, dy) || 1;
-        const tipX = hasType ? b.x - dx / d * (targetR + 2) : b.x;
-        const tipY = hasType ? b.y - dy / d * (targetR + 2) : b.y;
-        let arrowPath = null;
-        let lineEndX = tipX, lineEndY = tipY;
-        if (hasType) {
-          const ang = Math.atan2(dy, dx);
-          const arrLen = 8;
-          const arrWide = 4;
-          const baseX = tipX - arrLen * Math.cos(ang);
-          const baseY = tipY - arrLen * Math.sin(ang);
-          const w1x = baseX + arrWide * Math.sin(ang);
-          const w1y = baseY - arrWide * Math.cos(ang);
-          const w2x = baseX - arrWide * Math.sin(ang);
-          const w2y = baseY + arrWide * Math.cos(ang);
-          arrowPath = `M${tipX},${tipY} L${w1x},${w1y} L${w2x},${w2y} Z`;
-          lineEndX = baseX;
-          lineEndY = baseY;
+    const edgesLayer = useMemo(() => /* @__PURE__ */ jsx(Fragment, { children: edges.map((e) => {
+      const fromNid = String(e.data.fromNid), toNid = String(e.data.toNid);
+      const a2 = positions.get(fromNid), b = positions.get(toNid);
+      if (!a2 || !b) return null;
+      const hasType = !!e.data.type;
+      const op = edgeOpacity(
+        isEdgeFocused(fromNid, toNid),
+        isEdgeRelevant(fromNid, toNid),
+        hasType ? 0.6 : 0.15,
+        hasType ? 0.95 : 0.7,
+        hasType ? 0.5 : 0.25
+      );
+      return /* @__PURE__ */ jsx("g", { children: /* @__PURE__ */ jsx(
+        Edge,
+        {
+          a: a2,
+          b,
+          color: branchColorByNid.get(toNid) || "#94a3b8",
+          op,
+          sw: hasType ? op > 0.3 ? 2 : 1.5 : op > 0.3 ? 1.5 : 1,
+          dashed: contextNids.has(fromNid) || contextNids.has(toNid),
+          arrow: hasType ? { targetR: planetRByNid.get(toNid) || 8 } : void 0,
+          label: e.data.type && !!neighborSet && isEdgeFocused(fromNid, toNid) ? { text: String(e.data.type), color: "#cbd5e1" } : void 0
         }
-        return /* @__PURE__ */ jsxs("g", { children: [
-          /* @__PURE__ */ jsx(
-            "line",
-            {
-              x1: a2.x,
-              y1: a2.y,
-              x2: lineEndX,
-              y2: lineEndY,
-              stroke: edgeColor,
-              strokeOpacity: op,
-              strokeWidth: sw,
-              strokeDasharray: dashed ? "4 3" : void 0
-            }
-          ),
-          arrowPath && /* @__PURE__ */ jsx("path", { d: arrowPath, fill: edgeColor, opacity: op }),
-          showLabel && /* @__PURE__ */ jsx(
-            Label,
-            {
-              x: (a2.x + b.x) / 2,
-              y: (a2.y + b.y) / 2 - 4,
-              text: String(e.data.type),
-              color: "#cbd5e1",
-              size: 9,
-              opacity: 0.9,
-              weight: 500
-            }
-          )
-        ] }, e.id);
-      }) });
-    }, [edges, positions, neighborSet, focusNid, z, contextNids, planetRByNid, branchColorByNid]);
-    const contextLayer = useMemo(() => {
-      return /* @__PURE__ */ jsx(Fragment, { children: contextEdges.map((ce, i) => {
-        const a2 = positions.get(ce.from);
-        const b = positions.get(ce.to);
-        if (!a2 || !b) return null;
-        const w = 1 + Math.min(ce.count - 1, 2) * 0.4;
-        const idleOp = ce.count < 2 ? 0 : Math.min(0.12 + ce.strength * 0.15, 0.3);
-        const op = !neighborSet ? idleOp : isEdgeFocused(ce.from, ce.to) ? Math.min(0.5 + ce.strength * 0.4, 0.9) : isEdgeRelevant(ce.from, ce.to) ? 0.25 : 0.02;
-        const showLabel = neighborSet && isEdgeFocused(ce.from, ce.to);
-        const dashed = contextNids.has(ce.from) || contextNids.has(ce.to);
-        return /* @__PURE__ */ jsxs("g", { children: [
-          /* @__PURE__ */ jsx(
-            "line",
-            {
-              x1: a2.x,
-              y1: a2.y,
-              x2: b.x,
-              y2: b.y,
-              stroke: ce.relColor,
-              strokeOpacity: op,
-              strokeWidth: w,
-              strokeLinecap: "round",
-              strokeDasharray: dashed ? "4 3" : void 0
-            }
-          ),
-          showLabel && /* @__PURE__ */ jsx(
-            Label,
-            {
-              x: (a2.x + b.x) / 2,
-              y: (a2.y + b.y) / 2 - 4,
-              text: `${ce.relLabel}${ce.count > 1 ? ` ·${ce.count}` : ""}`,
-              color: ce.relColor,
-              size: 8,
-              opacity: 0.95,
-              weight: 600
-            }
-          )
-        ] }, `ctx-${i}`);
-      }) });
-    }, [contextEdges, positions, neighborSet, focusNid, z, contextNids]);
+      ) }, e.id);
+    }) }), [edges, positions, neighborSet, focusNid, z, contextNids, planetRByNid, branchColorByNid]);
+    const contextLayer = useMemo(() => /* @__PURE__ */ jsx(Fragment, { children: contextEdges.map((ce, i) => {
+      const a2 = positions.get(ce.from), b = positions.get(ce.to);
+      if (!a2 || !b) return null;
+      const op = edgeOpacity(
+        isEdgeFocused(ce.from, ce.to),
+        isEdgeRelevant(ce.from, ce.to),
+        ce.count < 2 ? 0 : Math.min(0.12 + ce.strength * 0.15, 0.3),
+        Math.min(0.5 + ce.strength * 0.4, 0.9),
+        0.25
+      );
+      return /* @__PURE__ */ jsx("g", { children: /* @__PURE__ */ jsx(
+        Edge,
+        {
+          a: a2,
+          b,
+          color: ce.relColor,
+          op,
+          sw: 1 + Math.min(ce.count - 1, 2) * 0.4,
+          dashed: contextNids.has(ce.from) || contextNids.has(ce.to),
+          label: !!neighborSet && isEdgeFocused(ce.from, ce.to) ? { text: `${ce.relLabel}${ce.count > 1 ? ` ·${ce.count}` : ""}`, color: ce.relColor, size: 8, weight: 600 } : void 0
+        }
+      ) }, `ctx-${i}`);
+    }) }), [contextEdges, positions, neighborSet, focusNid, z, contextNids]);
     const highlightLines = useMemo(() => {
       if (!selectedLexId) return null;
       const nids = Array.from(highlightedNids);
