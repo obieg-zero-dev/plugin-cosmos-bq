@@ -391,8 +391,14 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
       setHovered(prev => (prev === nid ? prev : nid))
     }
 
-    // Focus mode: hover bije select. Sąsiedzi przez edges + contextEdges.
-    const focusNid: string | null = hovered ?? selectedNid
+    // Tap-na-tło = deselect (mobile-friendly). Tylko jeśli nie był drag.
+    const onBackgroundClick = () => {
+      if (wasMovedRef.current) { wasMovedRef.current = false; return }
+      useNav.setState({ selectedNid: null, selectedLexId: null })
+    }
+
+    // Focus mode: WYŁĄCZNIE selectedNid (klik/tap, działa na mobile). Hover NIE używany do focus.
+    const focusNid: string | null = selectedNid
     const neighborSet = useMemo(() => {
       if (!focusNid) return null
       const set = new Set<string>([focusNid])
@@ -544,7 +550,7 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
                 fill={p.color}
                 stroke={isSel || isHl ? '#fff' : 'none'} strokeWidth={2}
                 style={{ cursor: 'pointer' }}
-                onClick={() => tryClick(() => selectByNid(treeId, nid))} />
+                onClick={(e) => { e.stopPropagation(); tryClick(() => selectByNid(treeId, nid)) }} />
 
               {lexs.map((lex, i) => {
                 const ang = (i / Math.max(lexs.length, 1)) * Math.PI * 2
@@ -607,7 +613,8 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
           onMouseDown={onMouseDown}
           onMouseMove={onMouseMove}
           onMouseUp={finishDrag}
-          onMouseLeave={finishDrag}>
+          onMouseLeave={finishDrag}
+          onClick={onBackgroundClick}>
           <g ref={gRef}>
             {orbitsLayer}
             <circle cx={cx} cy={cy} r={6} fill="#fde68a" />

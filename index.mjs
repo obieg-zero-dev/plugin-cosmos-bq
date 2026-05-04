@@ -1180,7 +1180,14 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
       if (dragRef.current) return;
       setHovered((prev) => prev === nid ? prev : nid);
     };
-    const focusNid = hovered ?? selectedNid;
+    const onBackgroundClick = () => {
+      if (wasMovedRef.current) {
+        wasMovedRef.current = false;
+        return;
+      }
+      useNav.setState({ selectedNid: null, selectedLexId: null });
+    };
+    const focusNid = selectedNid;
     const neighborSet = useMemo(() => {
       if (!focusNid) return null;
       const set2 = /* @__PURE__ */ new Set([focusNid]);
@@ -1380,7 +1387,10 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
                   stroke: isSel || isHl ? "#fff" : "none",
                   strokeWidth: 2,
                   style: { cursor: "pointer" },
-                  onClick: () => tryClick(() => selectByNid(treeId, nid))
+                  onClick: (e) => {
+                    e.stopPropagation();
+                    tryClick(() => selectByNid(treeId, nid));
+                  }
                 }
               ),
               lexs.map((lex, i) => {
@@ -1466,6 +1476,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
           onMouseMove,
           onMouseUp: finishDrag,
           onMouseLeave: finishDrag,
+          onClick: onBackgroundClick,
           children: /* @__PURE__ */ jsxs("g", { ref: gRef, children: [
             orbitsLayer,
             /* @__PURE__ */ jsx("circle", { cx, cy, r: 6, fill: "#fde68a" }),
