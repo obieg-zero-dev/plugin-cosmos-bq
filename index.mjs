@@ -849,6 +849,30 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
     neutral: "#94a3b8"
   };
   const PALETTE = ["#4a90e2", "#e91e63", "#22c55e", "#f59e0b", "#9b59b6", "#00bcd4", "#ef4444", "#94a3b8"];
+  const usedBranchInfos = (nodes, branches) => {
+    const byKey = new Map(branches.map((b) => [String(b.data.key), b]));
+    const used = [];
+    const seen = /* @__PURE__ */ new Set();
+    for (const b of branches) {
+      const k = String(b.data.key);
+      if (!seen.has(k) && nodes.some((n) => String(n.data.branch || "") === k)) {
+        used.push(k);
+        seen.add(k);
+      }
+    }
+    if (nodes.some((n) => !String(n.data.branch || ""))) used.push("_none");
+    return used.map((k, i) => {
+      const def = byKey.get(k);
+      const colorKey = def ? String(def.data.color || "") : "";
+      return {
+        key: k,
+        label: def ? String(def.data.label) : "bez gałęzi",
+        color: COLOR_MAP[colorKey] || PALETTE[i % PALETTE.length],
+        def
+      };
+    });
+  };
+  const branchOf = (n) => String(n.data.branch || "") || "_none";
   function LeftPanel() {
     const trees = store.usePosts("tree");
     const { treeId, selectedNid } = useNav();
@@ -865,35 +889,14 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
       if (initial) useNav.setState({ treeId: initial });
     }, [trees.length, sharedTreeId]);
     const groups = useMemo(() => {
-      const branchByKey = new Map(branches.map((b) => [String(b.data.key), b]));
-      const usedKeys = [];
-      const seen = /* @__PURE__ */ new Set();
-      for (const b of branches) {
-        const k = String(b.data.key);
-        if (!seen.has(k) && nodes.some((n) => String(n.data.branch || "") === k)) {
-          usedKeys.push(k);
-          seen.add(k);
-        }
-      }
-      if (nodes.some((n) => !String(n.data.branch || ""))) usedKeys.push("_none");
-      return usedKeys.map((k, i) => {
-        const b = branchByKey.get(k);
-        const colorKey = b ? String(b.data.color || "") : "";
-        const color = COLOR_MAP[colorKey] || PALETTE[i % PALETTE.length];
-        const inBranch = nodes.filter(
-          (n) => (String(n.data.branch || "") || "_none") === k
-        );
+      return usedBranchInfos(nodes, branches).map((info) => {
+        const inBranch = nodes.filter((n) => branchOf(n) === info.key);
         const sorted = [...inBranch].sort((a2, c2) => {
           const ta = parseInt(String(a2.data.tier || "1"), 10) || 1;
           const tc = parseInt(String(c2.data.tier || "1"), 10) || 1;
           return ta - tc;
         });
-        return {
-          key: k,
-          label: b ? String(b.data.label) : "Bez gałęzi",
-          color,
-          nodes: sorted
-        };
+        return { ...info, nodes: sorted };
       });
     }, [nodes, branches]);
     if (trees.length === 0) {
@@ -985,39 +988,19 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
       const rMin = 110;
       const minArc = 38;
       const baseStep = 95;
-      const branchByKey = new Map(branches.map((b) => [String(b.data.key), b]));
-      const usedKeys = [];
-      const seen = /* @__PURE__ */ new Set();
-      for (const b of branches) {
-        const k = String(b.data.key);
-        if (!seen.has(k) && nodes.some((n) => String(n.data.branch || "") === k)) {
-          usedKeys.push(k);
-          seen.add(k);
-        }
-      }
-      if (nodes.some((n) => !String(n.data.branch || ""))) usedKeys.push("_none");
-      const branchOf = (n) => String(n.data.branch || "") || "_none";
       const countPerKey = /* @__PURE__ */ new Map();
       for (const n of nodes) {
         const k = branchOf(n);
         countPerKey.set(k, (countPerKey.get(k) || 0) + 1);
       }
       let prevR = rMin;
-      const orbits2 = usedKeys.map((k, i) => {
-        const cnt = countPerKey.get(k) || 1;
+      const orbits2 = usedBranchInfos(nodes, branches).map((info, i) => {
+        const cnt = countPerKey.get(info.key) || 1;
         const required = cnt * minArc / (2 * Math.PI);
         const r = Math.max(prevR + (i === 0 ? 0 : baseStep), required);
         prevR = r;
-        const b = branchByKey.get(k);
-        const colorKey = b ? String(b.data.color || "") : "";
-        return {
-          key: k,
-          label: b ? String(b.data.label) : "bez gałęzi",
-          color: COLOR_MAP[colorKey] || PALETTE[i % PALETTE.length],
-          radius: r
-        };
+        return { ...info, radius: r };
       });
-      new Map(orbits2.map((o) => [o.key, o]));
       const simNodes = [];
       for (const orbit of orbits2) {
         const onOrbit = nodes.filter((n) => branchOf(n) === orbit.key);
@@ -1402,21 +1385,29 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
     const edges = store.useChildren(treeId || "", "edge");
     const lexicons = store.useChildren(treeId || "", "lexicon");
     const allLexNodes = store.usePosts("lexNode");
+    const lexById = useMemo(() => new Map(lexicons.map((l) => [l.id, l])), [lexicons]);
+    const nodeByNid = useMemo(() => {
+      const m2 = /* @__PURE__ */ new Map();
+      for (const n of nodes) m2.set(String(n.data.nodeId), n);
+      return m2;
+    }, [nodes]);
     if (selectedLexId) {
-      const lex = lexicons.find((l) => l.id === selectedLexId);
+      const lex = lexById.get(selectedLexId);
       if (!lex) return /* @__PURE__ */ jsx(ui.Placeholder, { text: "Termin nie istnieje" });
-      const lexNids = allLexNodes.filter((ln) => ln.parentId === selectedLexId).map((ln) => String(ln.data.nid));
-      const containingNodes = nodes.filter((n) => lexNids.includes(String(n.data.nodeId)));
-      const related = [];
+      const myNidSet = /* @__PURE__ */ new Set();
+      for (const ln of allLexNodes) {
+        if (ln.parentId === selectedLexId) myNidSet.add(String(ln.data.nid));
+      }
+      const containingNodes = nodes.filter((n) => myNidSet.has(String(n.data.nodeId)));
       const counter = /* @__PURE__ */ new Map();
-      const myNidSet = new Set(lexNids);
       for (const ln of allLexNodes) {
         if (ln.parentId === selectedLexId) continue;
         if (!myNidSet.has(String(ln.data.nid))) continue;
         counter.set(ln.parentId, (counter.get(ln.parentId) || 0) + 1);
       }
+      const related = [];
       for (const [lexId, count] of counter) {
-        const l = lexicons.find((x2) => x2.id === lexId);
+        const l = lexById.get(lexId);
         if (l) related.push({ lex: l, count });
       }
       related.sort((a2, b) => b.count - a2.count);
@@ -1466,10 +1457,14 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
         ))
       ] }) });
     }
-    const node = nodes.find((n) => String(n.data.nodeId) === selectedNid);
+    const node = selectedNid ? nodeByNid.get(selectedNid) : void 0;
     if (!node) return /* @__PURE__ */ jsx(ui.Placeholder, { text: "Wybierz węzeł lub termin" });
-    const myLexNodes = allLexNodes.filter((ln) => String(ln.data.nid) === selectedNid);
-    const myLexs = myLexNodes.map((ln) => lexicons.find((l) => l.id === ln.parentId)).filter(Boolean);
+    const myLexs = [];
+    for (const ln of allLexNodes) {
+      if (String(ln.data.nid) !== selectedNid) continue;
+      const l = lexById.get(ln.parentId);
+      if (l) myLexs.push(l);
+    }
     const lexsByCat = /* @__PURE__ */ new Map();
     for (const l of myLexs) {
       const c2 = String(l.data.category || "inne");
@@ -1478,7 +1473,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
     }
     const titleOf = (nid) => {
       var _a;
-      return String(((_a = nodes.find((n) => String(n.data.nodeId) === nid)) == null ? void 0 : _a.data.title) ?? nid);
+      return String(((_a = nodeByNid.get(nid)) == null ? void 0 : _a.data.title) ?? nid);
     };
     const out = edges.filter((e) => e.data.fromNid === selectedNid);
     const inc = edges.filter((e) => e.data.toNid === selectedNid);
@@ -1567,7 +1562,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
     label: "Kosmos BQ",
     description: "Kosmiczny widok grafu BQ — orbity gałęzi + księżyce terminów, układ d3-force",
     icon: Share2 || GitBranch,
-    version: "0.8.2"
+    version: "0.8.3"
   };
 };
 export {
