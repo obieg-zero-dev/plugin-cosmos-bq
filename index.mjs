@@ -983,6 +983,20 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
       }
       return m2;
     }, [nodes, slidesByNodeId]);
+    const branchColorByNid = useMemo(() => {
+      const branchByKey = new Map(branches.map((b) => [String(b.data.key), b]));
+      const m2 = /* @__PURE__ */ new Map();
+      const palette = PALETTE;
+      let i = 0;
+      for (const n of nodes) {
+        const k = String(n.data.branch || "") || "_none";
+        const def = branchByKey.get(k);
+        const colorKey = def ? String(def.data.color || "") : "";
+        const color = COLOR_MAP[colorKey] || palette[i++ % palette.length];
+        m2.set(String(n.data.nodeId), color);
+      }
+      return m2;
+    }, [nodes, branches]);
     const { lexsByNid, nidsByLex } = useMemo(() => {
       const lexById = new Map(lexicons.map((l) => [l.id, l]));
       const lexsByNid2 = /* @__PURE__ */ new Map();
@@ -1106,6 +1120,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
         slidesByNodeId,
         contextNids,
         planetRByNid,
+        branchColorByNid,
         selectedNid,
         selectedLexId,
         relatedLexIds,
@@ -1127,6 +1142,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
       slidesByNodeId,
       contextNids,
       planetRByNid,
+      branchColorByNid,
       selectedNid,
       selectedLexId,
       relatedLexIds,
@@ -1303,17 +1319,19 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
         const a2 = positions.get(fromNid);
         const b = positions.get(toNid);
         if (!a2 || !b) return null;
-        const op = !neighborSet ? 0.18 : isEdgeFocused(fromNid, toNid) ? 0.7 : isEdgeRelevant(fromNid, toNid) ? 0.3 : 0.02;
+        const hasType = !!e.data.type;
+        const idleOp = hasType ? 0.6 : 0.15;
+        const op = !neighborSet ? idleOp : isEdgeFocused(fromNid, toNid) ? hasType ? 0.95 : 0.7 : isEdgeRelevant(fromNid, toNid) ? hasType ? 0.5 : 0.25 : 0.02;
         const showLabel = e.data.type && !!neighborSet && isEdgeFocused(fromNid, toNid);
         const dashed = contextNids.has(fromNid) || contextNids.has(toNid);
-        const hasType = !!e.data.type;
+        const edgeColor = branchColorByNid.get(fromNid) || "#94a3b8";
         const sw = hasType ? op > 0.3 ? 2 : 1.5 : op > 0.3 ? 1.5 : 1;
         const targetR = planetRByNid.get(toNid) || 8;
         const dx = b.x - a2.x, dy = b.y - a2.y;
         const d = Math.hypot(dx, dy) || 1;
         const x2 = hasType ? b.x - dx / d * (targetR + 3) : b.x;
         const y2 = hasType ? b.y - dy / d * (targetR + 3) : b.y;
-        return /* @__PURE__ */ jsxs("g", { children: [
+        return /* @__PURE__ */ jsxs("g", { style: { color: edgeColor }, children: [
           /* @__PURE__ */ jsx(
             "line",
             {
@@ -1321,7 +1339,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
               y1: a2.y,
               x2,
               y2,
-              stroke: "#fff",
+              stroke: edgeColor,
               strokeOpacity: op,
               strokeWidth: sw,
               strokeDasharray: dashed ? "4 3" : void 0,
@@ -1342,7 +1360,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
           )
         ] }, e.id);
       }) });
-    }, [edges, positions, neighborSet, focusNid, z, contextNids, planetRByNid]);
+    }, [edges, positions, neighborSet, focusNid, z, contextNids, planetRByNid, branchColorByNid]);
     const contextLayer = useMemo(() => {
       return /* @__PURE__ */ jsx(Fragment, { children: contextEdges.map((ce, i) => {
         const a2 = positions.get(ce.from);
@@ -1564,7 +1582,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
                 markerHeight: "5",
                 orient: "auto",
                 markerUnits: "strokeWidth",
-                children: /* @__PURE__ */ jsx("path", { d: "M-4,-4 L0,0 L-4,4 Z", fill: "#fff", opacity: "0.85" })
+                children: /* @__PURE__ */ jsx("path", { d: "M-4,-4 L0,0 L-4,4 Z", fill: "currentColor" })
               }
             ) }),
             /* @__PURE__ */ jsxs("g", { ref: gRef, children: [

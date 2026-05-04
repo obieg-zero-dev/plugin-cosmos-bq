@@ -189,6 +189,22 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
       return m
     }, [nodes, slidesByNodeId])
 
+    // Kolor gałęzi per nid — używany do koloru krawędzi (jednolity wzorzec, kolor źródła)
+    const branchColorByNid = useMemo(() => {
+      const branchByKey = new Map(branches.map(b => [String(b.data.key), b]))
+      const m = new Map<string, string>()
+      const palette = PALETTE
+      let i = 0
+      for (const n of nodes) {
+        const k = String(n.data.branch || '') || '_none'
+        const def = branchByKey.get(k)
+        const colorKey = def ? String(def.data.color || '') : ''
+        const color = COLOR_MAP[colorKey] || palette[i++ % palette.length]
+        m.set(String(n.data.nodeId), color)
+      }
+      return m
+    }, [nodes, branches])
+
     const { lexsByNid, nidsByLex } = useMemo(() => {
       const lexById = new Map(lexicons.map(l => [l.id, l]))
       const lexsByNid = new Map<string, PostRecord[]>()
@@ -321,6 +337,7 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
       slidesByNodeId={slidesByNodeId}
       contextNids={contextNids}
       planetRByNid={planetRByNid}
+      branchColorByNid={branchColorByNid}
       selectedNid={selectedNid} selectedLexId={selectedLexId}
       relatedLexIds={relatedLexIds}
       highlightedNids={highlightedNids}
@@ -340,13 +357,14 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
     slidesByNodeId: Map<string, number>
     contextNids: Set<string>
     planetRByNid: Map<string, number>
+    branchColorByNid: Map<string, string>
     selectedNid: string | null
     selectedLexId: string | null
     relatedLexIds: Set<string>
     highlightedNids: Set<string>
     treeId: string
   }) {
-    const { cx, cy, orbits, positions, nodes, edges, contextEdges, lexsByNid, slidesByNodeId, contextNids, planetRByNid,
+    const { cx, cy, orbits, positions, nodes, edges, contextEdges, lexsByNid, slidesByNodeId, contextNids, planetRByNid, branchColorByNid,
             selectedNid, selectedLexId, relatedLexIds, highlightedNids, treeId } = props
 
     const svgRef = useRef<SVGSVGElement>(null)
@@ -517,17 +535,20 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
           const a = positions.get(fromNid)
           const b = positions.get(toNid)
           if (!a || !b) return null
-          const op = !neighborSet ? 0.18
-            : isEdgeFocused(fromNid, toNid) ? 0.7
-            : isEdgeRelevant(fromNid, toNid) ? 0.3
+          // Edge z TYPEM (progression, kontrast) = główna kierunkowa, mocniejsza.
+          // Bez type = poboczna luźna, słabsza.
+          const hasType = !!e.data.type
+          const idleOp = hasType ? 0.6 : 0.15
+          const op = !neighborSet ? idleOp
+            : isEdgeFocused(fromNid, toNid) ? (hasType ? 0.95 : 0.7)
+            : isEdgeRelevant(fromNid, toNid) ? (hasType ? 0.5 : 0.25)
             : 0.02
           // Etykieta krawędzi: TYLKO w focus mode dla focused edge (idle ukryte → brak chaosu)
           const showLabel = e.data.type && !!neighborSet && isEdgeFocused(fromNid, toNid)
           // Krawędź dotykająca węzła kontekstowego → przerywana
           const dashed = contextNids.has(fromNid) || contextNids.has(toNid)
-          // Edge z TYPEM (np. progression, kontrast) = główna kierunkowa — grubsza + strzałka.
-          // Edge bez type = poboczna luźna relacja, cienka bez strzałki.
-          const hasType = !!e.data.type
+          // Kolor krawędzi = kolor gałęzi source (jednolity wzorzec — taki sam jak planety)
+          const edgeColor = branchColorByNid.get(fromNid) || '#94a3b8'
           const sw = hasType ? (op > 0.3 ? 2 : 1.5) : (op > 0.3 ? 1.5 : 1)
           // Offset końca linii o promień planety target — strzałka tuż przy krawędzi, nie w środku
           const targetR = planetRByNid.get(toNid) || 8
@@ -536,9 +557,9 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
           const x2 = hasType ? b.x - (dx / d) * (targetR + 3) : b.x
           const y2 = hasType ? b.y - (dy / d) * (targetR + 3) : b.y
           return (
-            <g key={e.id}>
+            <g key={e.id} style={{ color: edgeColor }}>
               <line x1={a.x} y1={a.y} x2={x2} y2={y2}
-                stroke="#fff" strokeOpacity={op} strokeWidth={sw}
+                stroke={edgeColor} strokeOpacity={op} strokeWidth={sw}
                 strokeDasharray={dashed ? '4 3' : undefined}
                 markerEnd={hasType ? 'url(#cos-arrow)' : undefined} />
               {showLabel && (
@@ -551,7 +572,7 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
         })}
       </>
       )
-    }, [edges, positions, neighborSet, focusNid, z, contextNids, planetRByNid])
+    }, [edges, positions, neighborSet, focusNid, z, contextNids, planetRByNid, branchColorByNid])
 
     // Krawędzie kontekstowe (lex co-occurrence) — kolor relacji, count<2 ukryte idle
     const contextLayer = useMemo(() => {
@@ -711,7 +732,7 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
             <marker id="cos-arrow" viewBox="-5 -5 10 10"
               refX="0" refY="0" markerWidth="5" markerHeight="5"
               orient="auto" markerUnits="strokeWidth">
-              <path d="M-4,-4 L0,0 L-4,4 Z" fill="#fff" opacity="0.85" />
+              <path d="M-4,-4 L0,0 L-4,4 Z" fill="currentColor" />
             </marker>
           </defs>
           <g ref={gRef}>
