@@ -1136,11 +1136,11 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
       const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
       const { x: px, y: py } = screenToVb(e.clientX, e.clientY);
       const v = viewRef.current;
-      const z = Math.max(0.5, Math.min(5, v.zoom * factor));
-      const k = z / v.zoom;
-      viewRef.current = { zoom: z, x: px - k * (px - v.x), y: py - k * (py - v.y) };
+      const z2 = Math.max(0.5, Math.min(5, v.zoom * factor));
+      const k = z2 / v.zoom;
+      viewRef.current = { zoom: z2, x: px - k * (px - v.x), y: py - k * (py - v.y) };
       applyView();
-      setZoomPct(Math.round(z * 100));
+      setZoomPct(Math.round(z2 * 100));
     };
     const onMouseDown = (e) => {
       if (e.button !== 0) return;
@@ -1207,28 +1207,34 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
     const isEdgeRelevant = (a2, b) => !!neighborSet && neighborSet.has(a2) && neighborSet.has(b);
     const showAllLabels = zoomPct >= 150;
     const labelOpacity = (sel, hov) => sel ? 1 : hov ? 0.95 : showAllLabels ? 0.8 : 0;
-    const Label = (p) => /* @__PURE__ */ jsx(
-      "text",
-      {
-        x: p.x,
-        y: p.y,
-        textAnchor: "middle",
-        fontSize: p.size ?? 10,
-        fill: p.color,
-        opacity: p.opacity ?? 1,
-        style: {
-          pointerEvents: "none",
-          paintOrder: "stroke",
-          letterSpacing: p.uppercase ? 0.6 : 0.2,
-          fontWeight: p.weight ?? 500,
-          textTransform: p.uppercase ? "uppercase" : "none"
-        },
-        stroke: "#0a0e1a",
-        strokeWidth: 2.5,
-        strokeOpacity: 0.85,
-        children: p.text
-      }
-    );
+    const z = Math.max(zoomPct / 100, 0.5);
+    const Label = (p) => {
+      const baseSize = p.size ?? 10;
+      const fs = baseSize / z;
+      const sw = 2.5 / z;
+      return /* @__PURE__ */ jsx(
+        "text",
+        {
+          x: p.x,
+          y: p.y,
+          textAnchor: "middle",
+          fontSize: fs,
+          fill: p.color,
+          opacity: p.opacity ?? 1,
+          style: {
+            pointerEvents: "none",
+            paintOrder: "stroke",
+            letterSpacing: (p.uppercase ? 0.6 : 0.2) / z,
+            fontWeight: p.weight ?? 500,
+            textTransform: p.uppercase ? "uppercase" : "none"
+          },
+          stroke: "#0a0e1a",
+          strokeWidth: sw,
+          strokeOpacity: 0.85,
+          children: p.text
+        }
+      );
+    };
     const orbitsLayer = useMemo(() => {
       return /* @__PURE__ */ jsxs(Fragment, { children: [
         orbits.map((o) => /* @__PURE__ */ jsx(
@@ -1443,8 +1449,6 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
       }) });
     }, [nodes, positions, lexsByNid, selectedNid, selectedLexId, relatedLexIds, highlightedNids, treeId, neighborSet]);
     const labelsLayer = useMemo(() => {
-      const z = Math.max(zoomPct / 100, 1);
-      const fs = 10 / z;
       return /* @__PURE__ */ jsx(Fragment, { children: nodes.map((n) => {
         const nid = String(n.data.nodeId);
         const p = positions.get(nid);
@@ -1461,7 +1465,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
             y: p.y + 30,
             text: String(n.data.title),
             color: "#fff",
-            size: fs,
+            size: 10,
             opacity: op,
             weight: 500
           },

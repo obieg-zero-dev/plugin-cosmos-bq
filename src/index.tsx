@@ -424,26 +424,33 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
     const labelOpacity = (sel: boolean, hov: boolean) =>
       sel ? 1 : hov ? 0.95 : showAllLabels ? 0.8 : 0
 
-    // Spójny renderer labels — każdy tekst SVG przez to. Outline ciemny zawsze (czytelność na każdym tle).
+    // Spójny renderer labels — anti-scale przez podział size/strokeWidth przez zoom.
+    // Wynik: stała wielkość ekranowa niezależnie od zoomu. Outline ciemny zawsze.
+    const z = Math.max(zoomPct / 100, 0.5)
     const Label = (p: {
       x: number; y: number; text: string; color: string;
       size?: number; opacity?: number; weight?: number; uppercase?: boolean;
-    }) => (
-      <text x={p.x} y={p.y} textAnchor="middle"
-        fontSize={p.size ?? 10}
-        fill={p.color}
-        opacity={p.opacity ?? 1}
-        style={{
-          pointerEvents: 'none',
-          paintOrder: 'stroke',
-          letterSpacing: p.uppercase ? 0.6 : 0.2,
-          fontWeight: p.weight ?? 500,
-          textTransform: p.uppercase ? 'uppercase' : 'none',
-        }}
-        stroke="#0a0e1a" strokeWidth={2.5} strokeOpacity={0.85}>
-        {p.text}
-      </text>
-    )
+    }) => {
+      const baseSize = p.size ?? 10
+      const fs = baseSize / z
+      const sw = 2.5 / z
+      return (
+        <text x={p.x} y={p.y} textAnchor="middle"
+          fontSize={fs}
+          fill={p.color}
+          opacity={p.opacity ?? 1}
+          style={{
+            pointerEvents: 'none',
+            paintOrder: 'stroke',
+            letterSpacing: (p.uppercase ? 0.6 : 0.2) / z,
+            fontWeight: p.weight ?? 500,
+            textTransform: p.uppercase ? 'uppercase' : 'none',
+          }}
+          stroke="#0a0e1a" strokeWidth={sw} strokeOpacity={0.85}>
+          {p.text}
+        </text>
+      )
+    }
 
     const orbitsLayer = useMemo(() => {
       return (
@@ -593,8 +600,6 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
     }, [nodes, positions, lexsByNid, selectedNid, selectedLexId, relatedLexIds, highlightedNids, treeId, neighborSet])
 
     const labelsLayer = useMemo(() => {
-      const z = Math.max(zoomPct / 100, 1)
-      const fs = 10 / z
       return (
         <>
           {nodes.map(n => {
@@ -609,7 +614,7 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
               <Label key={n.id}
                 x={p.x} y={p.y + 30}
                 text={String(n.data.title)} color="#fff"
-                size={fs} opacity={op} weight={500} />
+                size={10} opacity={op} weight={500} />
             )
           })}
         </>
