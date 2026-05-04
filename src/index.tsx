@@ -154,6 +154,7 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
     const nodes    = store.useChildren(treeId || '', 'node') as PostRecord[]
     const edges    = store.useChildren(treeId || '', 'edge') as PostRecord[]
     const branches = store.useChildren(treeId || '', 'branch') as PostRecord[]
+    const relTypes = store.useChildren(treeId || '', 'relType') as PostRecord[]
     const lexicons = store.useChildren(treeId || '', 'lexicon') as PostRecord[]
     const allLexNodes = store.usePosts('lexNode') as PostRecord[]
 
@@ -171,6 +172,39 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
       }
       return { lexsByNid, nidsByLex }
     }, [lexicons, allLexNodes])
+
+    // Krawędzie kontekstowe — agregacja par lex (relation + count) → semantyczne powiązania węzłów
+    const contextEdges = useMemo(() => {
+      const map = new Map<string, { from: string; to: string; rels: Map<string, number> }>()
+      for (const lex of lexicons) {
+        const nidsArr = Array.from(nidsByLex.get(lex.id) || [])
+        if (nidsArr.length < 2) continue
+        const rel = String(lex.data.relation || 'inne')
+        for (let i = 0; i < nidsArr.length; i++)
+          for (let j = i + 1; j < nidsArr.length; j++) {
+            const [a, b] = [nidsArr[i], nidsArr[j]].sort()
+            const key = `${a}:${b}`
+            if (!map.has(key)) map.set(key, { from: a, to: b, rels: new Map() })
+            const e = map.get(key)!
+            e.rels.set(rel, (e.rels.get(rel) || 0) + 1)
+          }
+      }
+      const relMap = new Map(relTypes.map(r => [String(r.data.key), r]))
+      const out: { from: string; to: string; relation: string; relLabel: string; relColor: string; count: number; strength: number }[] = []
+      for (const { from, to, rels } of map.values()) {
+        let best = 'inne', bestCount = 0, total = 0
+        for (const [r, c] of rels) { total += c; if (c > bestCount) { best = r; bestCount = c } }
+        const def = relMap.get(best)
+        out.push({
+          from, to, relation: best,
+          relLabel: def ? String(def.data.label) : best,
+          relColor: COLOR_MAP[String(def?.data.color || '')] || '#94a3b8',
+          count: total,
+          strength: Math.min(0.4 + total * 0.15, 0.9),
+        })
+      }
+      return out
+    }, [lexicons, relTypes, nidsByLex])
 
     const highlightedNids = selectedLexId ? (nidsByLex.get(selectedLexId) || new Set<string>()) : new Set<string>()
 
@@ -251,6 +285,7 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
       cx={cx} cy={cy}
       orbits={orbits} positions={positions}
       nodes={nodes} edges={edges}
+      contextEdges={contextEdges}
       lexsByNid={lexsByNid}
       selectedNid={selectedNid} selectedLexId={selectedLexId}
       relatedLexIds={relatedLexIds}
@@ -259,13 +294,14 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
     />
   }
 
-  // ── SVG: pan/zoom + ukrywanie etykiet ─────────────────────────────
+  // ── SVG: pan/zoom + ukrywanie etykiet + focus mode ────────────────
   function CosmosSvg(props: {
     cx: number; cy: number
     orbits: Array<{ key: string; label: string; color: string; radius: number }>
     positions: Map<string, { x: number; y: number; color: string }>
     nodes: PostRecord[]
     edges: PostRecord[]
+    contextEdges: { from: string; to: string; relation: string; relLabel: string; relColor: string; count: number; strength: number }[]
     lexsByNid: Map<string, PostRecord[]>
     selectedNid: string | null
     selectedLexId: string | null
@@ -273,7 +309,7 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
     highlightedNids: Set<string>
     treeId: string
   }) {
-    const { cx, cy, orbits, positions, nodes, edges, lexsByNid,
+    const { cx, cy, orbits, positions, nodes, edges, contextEdges, lexsByNid,
             selectedNid, selectedLexId, relatedLexIds, highlightedNids, treeId } = props
 
     const svgRef = useRef<SVGSVGElement>(null)
@@ -355,6 +391,29 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
       setHovered(prev => (prev === nid ? prev : nid))
     }
 
+    // Focus mode: hover bije select. Sąsiedzi przez edges + contextEdges.
+    const focusNid: string | null = hovered ?? selectedNid
+    const neighborSet = useMemo(() => {
+      if (!focusNid) return null
+      const set = new Set<string>([focusNid])
+      for (const e of edges) {
+        const f = String(e.data.fromNid), t = String(e.data.toNid)
+        if (f === focusNid) set.add(t)
+        if (t === focusNid) set.add(f)
+      }
+      for (const ce of contextEdges) {
+        if (ce.from === focusNid) set.add(ce.to)
+        if (ce.to === focusNid) set.add(ce.from)
+      }
+      return set
+    }, [focusNid, edges, contextEdges])
+
+    const isNodeDimmed = (nid: string) => !!neighborSet && !neighborSet.has(nid)
+    const isEdgeFocused = (a: string, b: string) =>
+      !!neighborSet && (a === focusNid || b === focusNid)
+    const isEdgeRelevant = (a: string, b: string) =>
+      !!neighborSet && neighborSet.has(a) && neighborSet.has(b)
+
     const showAllLabels = zoomPct >= 150
     const labelOpacity = (sel: boolean, hov: boolean) =>
       sel ? 1 : hov ? 0.95 : showAllLabels ? 0.8 : 0
@@ -377,21 +436,29 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
       )
     }, [orbits, cx, cy])
 
+    // Krawędzie strukturalne — focus mode (idle blade, hover wyróżnia)
     const edgesLayer = useMemo(() => {
       return (
       <>
         {edges.map(e => {
-          const a = positions.get(String(e.data.fromNid))
-          const b = positions.get(String(e.data.toNid))
+          const fromNid = String(e.data.fromNid), toNid = String(e.data.toNid)
+          const a = positions.get(fromNid)
+          const b = positions.get(toNid)
           if (!a || !b) return null
+          const op = !neighborSet ? 0.18
+            : isEdgeFocused(fromNid, toNid) ? 0.7
+            : isEdgeRelevant(fromNid, toNid) ? 0.3
+            : 0.02
+          const showLabel = e.data.type && (!neighborSet || isEdgeFocused(fromNid, toNid))
           return (
             <g key={e.id}>
               <line x1={a.x} y1={a.y} x2={b.x} y2={b.y}
-                stroke="#fff" strokeOpacity={0.25} strokeWidth={1} />
-              {e.data.type && (
+                stroke="#fff" strokeOpacity={op} strokeWidth={op > 0.3 ? 1.5 : 1} />
+              {showLabel && (
                 <text x={(a.x + b.x) / 2} y={(a.y + b.y) / 2 - 4}
-                  fontSize={9} fill="#cbd5e1" textAnchor="middle" opacity={0.7}
-                  style={{ pointerEvents: 'none' }}>
+                  fontSize={9} fill="#cbd5e1" textAnchor="middle" opacity={0.85}
+                  style={{ pointerEvents: 'none', paintOrder: 'stroke' }}
+                  stroke="#0a0e1a" strokeWidth={2.5} strokeOpacity={0.9}>
                   {String(e.data.type)}
                 </text>
               )}
@@ -400,7 +467,42 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
         })}
       </>
       )
-    }, [edges, positions])
+    }, [edges, positions, neighborSet, focusNid])
+
+    // Krawędzie kontekstowe (lex co-occurrence) — kolor relacji, count<2 ukryte idle
+    const contextLayer = useMemo(() => {
+      return (
+      <>
+        {contextEdges.map((ce, i) => {
+          const a = positions.get(ce.from); const b = positions.get(ce.to)
+          if (!a || !b) return null
+          const w = 1 + Math.min(ce.count - 1, 2) * 0.4
+          // Idle: count<2 ukryte, count>=2 blade
+          const idleOp = ce.count < 2 ? 0 : Math.min(0.12 + ce.strength * 0.15, 0.3)
+          const op = !neighborSet ? idleOp
+            : isEdgeFocused(ce.from, ce.to) ? Math.min(0.5 + ce.strength * 0.4, 0.9)
+            : isEdgeRelevant(ce.from, ce.to) ? 0.25
+            : 0.02
+          const showLabel = neighborSet && isEdgeFocused(ce.from, ce.to)
+          return (
+            <g key={`ctx-${i}`}>
+              <line x1={a.x} y1={a.y} x2={b.x} y2={b.y}
+                stroke={ce.relColor} strokeOpacity={op}
+                strokeWidth={w} strokeLinecap="round" />
+              {showLabel && (
+                <text x={(a.x + b.x) / 2} y={(a.y + b.y) / 2 - 4}
+                  fontSize={8} fill={ce.relColor} textAnchor="middle" opacity={0.95}
+                  style={{ pointerEvents: 'none', paintOrder: 'stroke', letterSpacing: 0.3 }}
+                  stroke="#0a0e1a" strokeWidth={2.5} strokeOpacity={0.9}>
+                  {ce.relLabel}{ce.count > 1 ? ` ·${ce.count}` : ''}
+                </text>
+              )}
+            </g>
+          )
+        })}
+      </>
+      )
+    }, [contextEdges, positions, neighborSet, focusNid])
 
     const highlightLines = useMemo(() => {
       if (!selectedLexId) return null
@@ -428,10 +530,12 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
           const isSel = selectedNid === nid
           const isHl = highlightedNids.has(nid)
           const lexs = lexsByNid.get(nid) || []
+          const dimmed = isNodeDimmed(nid)
           return (
             <g key={n.id}
                onMouseEnter={() => setHoverIfIdle(nid)}
-               onMouseLeave={() => setHoverIfIdle(null)}>
+               onMouseLeave={() => setHoverIfIdle(null)}
+               style={{ opacity: dimmed ? 0.25 : 1, transition: 'opacity 150ms' }}>
               {(isSel || isHl) && (
                 <circle cx={p.x} cy={p.y} r={22}
                   fill={isHl ? '#fde68a' : p.color} opacity={0.3} />
@@ -466,7 +570,7 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
         })}
       </>
       )
-    }, [nodes, positions, lexsByNid, selectedNid, selectedLexId, relatedLexIds, highlightedNids, treeId])
+    }, [nodes, positions, lexsByNid, selectedNid, selectedLexId, relatedLexIds, highlightedNids, treeId, neighborSet])
 
     const labelsLayer = useMemo(() => {
       const z = Math.max(zoomPct / 100, 1)
@@ -508,6 +612,7 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
             {orbitsLayer}
             <circle cx={cx} cy={cy} r={6} fill="#fde68a" />
             <circle cx={cx} cy={cy} r={14} fill="#fde68a" opacity={0.2} />
+            {contextLayer}
             {edgesLayer}
             {highlightLines}
             {planetsLayer}
