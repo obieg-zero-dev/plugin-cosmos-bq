@@ -169,6 +169,16 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
       return m
     }, [allContent])
 
+    // Nidy węzłów z gałęzi typu "kontekst" — krawędzie do nich rysujemy przerywane
+    const contextNids = useMemo(() => {
+      const set = new Set<string>()
+      for (const n of nodes) {
+        const k = String(n.data.branch || '').toLowerCase()
+        if (k.startsWith('kontekst')) set.add(String(n.data.nodeId))
+      }
+      return set
+    }, [nodes])
+
     const { lexsByNid, nidsByLex } = useMemo(() => {
       const lexById = new Map(lexicons.map(l => [l.id, l]))
       const lexsByNid = new Map<string, PostRecord[]>()
@@ -299,6 +309,7 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
       contextEdges={contextEdges}
       lexsByNid={lexsByNid}
       slidesByNodeId={slidesByNodeId}
+      contextNids={contextNids}
       selectedNid={selectedNid} selectedLexId={selectedLexId}
       relatedLexIds={relatedLexIds}
       highlightedNids={highlightedNids}
@@ -316,13 +327,14 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
     contextEdges: { from: string; to: string; relation: string; relLabel: string; relColor: string; count: number; strength: number }[]
     lexsByNid: Map<string, PostRecord[]>
     slidesByNodeId: Map<string, number>
+    contextNids: Set<string>
     selectedNid: string | null
     selectedLexId: string | null
     relatedLexIds: Set<string>
     highlightedNids: Set<string>
     treeId: string
   }) {
-    const { cx, cy, orbits, positions, nodes, edges, contextEdges, lexsByNid, slidesByNodeId,
+    const { cx, cy, orbits, positions, nodes, edges, contextEdges, lexsByNid, slidesByNodeId, contextNids,
             selectedNid, selectedLexId, relatedLexIds, highlightedNids, treeId } = props
 
     const svgRef = useRef<SVGSVGElement>(null)
@@ -499,10 +511,13 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
             : 0.02
           // Etykieta krawędzi: TYLKO w focus mode dla focused edge (idle ukryte → brak chaosu)
           const showLabel = e.data.type && !!neighborSet && isEdgeFocused(fromNid, toNid)
+          // Krawędź dotykająca węzła kontekstowego → przerywana
+          const dashed = contextNids.has(fromNid) || contextNids.has(toNid)
           return (
             <g key={e.id}>
               <line x1={a.x} y1={a.y} x2={b.x} y2={b.y}
-                stroke="#fff" strokeOpacity={op} strokeWidth={op > 0.3 ? 1.5 : 1} />
+                stroke="#fff" strokeOpacity={op} strokeWidth={op > 0.3 ? 1.5 : 1}
+                strokeDasharray={dashed ? '4 3' : undefined} />
               {showLabel && (
                 <Label x={(a.x + b.x) / 2} y={(a.y + b.y) / 2 - 4}
                   text={String(e.data.type)} color="#cbd5e1"
@@ -513,7 +528,7 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
         })}
       </>
       )
-    }, [edges, positions, neighborSet, focusNid, z])
+    }, [edges, positions, neighborSet, focusNid, z, contextNids])
 
     // Krawędzie kontekstowe (lex co-occurrence) — kolor relacji, count<2 ukryte idle
     const contextLayer = useMemo(() => {

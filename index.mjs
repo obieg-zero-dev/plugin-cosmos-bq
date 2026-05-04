@@ -967,6 +967,14 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
       }
       return m2;
     }, [allContent]);
+    const contextNids = useMemo(() => {
+      const set2 = /* @__PURE__ */ new Set();
+      for (const n of nodes) {
+        const k = String(n.data.branch || "").toLowerCase();
+        if (k.startsWith("kontekst")) set2.add(String(n.data.nodeId));
+      }
+      return set2;
+    }, [nodes]);
     const { lexsByNid, nidsByLex } = useMemo(() => {
       const lexById = new Map(lexicons.map((l) => [l.id, l]));
       const lexsByNid2 = /* @__PURE__ */ new Map();
@@ -1088,6 +1096,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
         contextEdges,
         lexsByNid,
         slidesByNodeId,
+        contextNids,
         selectedNid,
         selectedLexId,
         relatedLexIds,
@@ -1107,6 +1116,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
       contextEdges,
       lexsByNid,
       slidesByNodeId,
+      contextNids,
       selectedNid,
       selectedLexId,
       relatedLexIds,
@@ -1285,6 +1295,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
         if (!a2 || !b) return null;
         const op = !neighborSet ? 0.18 : isEdgeFocused(fromNid, toNid) ? 0.7 : isEdgeRelevant(fromNid, toNid) ? 0.3 : 0.02;
         const showLabel = e.data.type && !!neighborSet && isEdgeFocused(fromNid, toNid);
+        const dashed = contextNids.has(fromNid) || contextNids.has(toNid);
         return /* @__PURE__ */ jsxs("g", { children: [
           /* @__PURE__ */ jsx(
             "line",
@@ -1295,7 +1306,8 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
               y2: b.y,
               stroke: "#fff",
               strokeOpacity: op,
-              strokeWidth: op > 0.3 ? 1.5 : 1
+              strokeWidth: op > 0.3 ? 1.5 : 1,
+              strokeDasharray: dashed ? "4 3" : void 0
             }
           ),
           showLabel && /* @__PURE__ */ jsx(
@@ -1312,7 +1324,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
           )
         ] }, e.id);
       }) });
-    }, [edges, positions, neighborSet, focusNid, z]);
+    }, [edges, positions, neighborSet, focusNid, z, contextNids]);
     const contextLayer = useMemo(() => {
       return /* @__PURE__ */ jsx(Fragment, { children: contextEdges.map((ce, i) => {
         const a2 = positions.get(ce.from);
