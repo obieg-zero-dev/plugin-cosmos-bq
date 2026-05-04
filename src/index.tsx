@@ -551,8 +551,8 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
           // Krawędź dotykająca węzła kontekstowego → przerywana
           const dashed = contextNids.has(fromNid) || contextNids.has(toNid)
           const sw = hasType ? (op > 0.3 ? 2 : 1.5) : (op > 0.3 ? 1.5 : 1)
-          // Kolor edge = kolor gałęzi source (= kolor orbity źródła). Spójny wzorzec planeta/orbita/label/edge.
-          const edgeColor = branchColorByNid.get(fromNid) || '#94a3b8'
+          // Kolor edge = kolor gałęzi TARGET (do której krawędź prowadzi). Edge "wchodzi w" gałąź target.
+          const edgeColor = branchColorByNid.get(toNid) || '#94a3b8'
           const targetR = planetRByNid.get(toNid) || 8
           const dx = b.x - a.x, dy = b.y - a.y
           const d = Math.hypot(dx, dy) || 1

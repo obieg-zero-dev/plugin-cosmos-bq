@@ -1321,7 +1321,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
         const showLabel = e.data.type && !!neighborSet && isEdgeFocused(fromNid, toNid);
         const dashed = contextNids.has(fromNid) || contextNids.has(toNid);
         const sw = hasType ? op > 0.3 ? 2 : 1.5 : op > 0.3 ? 1.5 : 1;
-        const edgeColor = branchColorByNid.get(fromNid) || "#94a3b8";
+        const edgeColor = branchColorByNid.get(toNid) || "#94a3b8";
         const targetR = planetRByNid.get(toNid) || 8;
         const dx = b.x - a2.x, dy = b.y - a2.y;
         const d = Math.hypot(dx, dy) || 1;
