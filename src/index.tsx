@@ -5,7 +5,13 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
   const { useMemo, useEffect, useState, useRef } = React
   const { Share2, GitBranch, Maximize2 } = icons
 
-  // Używamy typów BQ: 'tree' (root), 'node' (parent: tree), 'edge' (parent: tree).
+  // Sentinel dla węzłów bez gałęzi (klucz Map). Map nie wspiera null jako klucz w iteracji semantycznie.
+  const NO_BRANCH = '_none'
+  // Konwencja danych: gałęzie zaczynające się na ten prefix to "konteksty" (Historia Polski, Biblia itp.)
+  const CONTEXT_BRANCH_PREFIX = 'kontekst'
+
+  // Rozmiar planety zależny od ilości slajdów (8-18px). Liczba slajdów = wizualna miara "ile treści".
+  const planetRadius = (slides: number) => Math.min(8 + slides, 18)
 
   const useNav = sdk.create(() => ({
     treeId: null as string | null,
@@ -56,7 +62,7 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
         used.push(k); seen.add(k)
       }
     }
-    if (nodes.some(n => !String(n.data.branch || ''))) used.push('_none')
+    if (nodes.some(n => !String(n.data.branch || ''))) used.push(NO_BRANCH)
     return used.map((k, i) => {
       const def = byKey.get(k)
       const colorKey = def ? String(def.data.color || '') : ''
@@ -68,7 +74,11 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
       }
     })
   }
-  const branchOf = (n: PostRecord) => String(n.data.branch || '') || '_none'
+  const branchOf = (n: PostRecord) => String(n.data.branch || '') || NO_BRANCH
+
+  const Dot = ({ color }: { color: string }) => (
+    <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 4, background: color, marginRight: 6 }} />
+  )
 
   // ── Lewy panel: drzewko węzłów z wcięciami po gałęzi/tier ─────────
   function LeftPanel() {
@@ -169,25 +179,33 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
       return m
     }, [allContent])
 
-    // Nidy węzłów z gałęzi typu "kontekst" — krawędzie do nich rysujemy przerywane
     const contextNids = useMemo(() => {
       const set = new Set<string>()
       for (const n of nodes) {
         const k = String(n.data.branch || '').toLowerCase()
-        if (k.startsWith('kontekst')) set.add(String(n.data.nodeId))
+        if (k.startsWith(CONTEXT_BRANCH_PREFIX)) set.add(String(n.data.nodeId))
       }
       return set
     }, [nodes])
 
-    // Promień planety per nid — potrzebny do offsetu strzałki (żeby nie wchodziła w planetę)
     const planetRByNid = useMemo(() => {
       const m = new Map<string, number>()
       for (const n of nodes) {
-        const slides = slidesByNodeId.get(n.id) || 0
-        m.set(String(n.data.nodeId), Math.min(8 + slides * 1.0, 18))
+        m.set(String(n.data.nodeId), planetRadius(slidesByNodeId.get(n.id) || 0))
       }
       return m
     }, [nodes, slidesByNodeId])
+
+    // Kolor węzła = kolor jego orbity (te same wartości co usedBranchInfos zwraca dla orbit).
+    // Edges wychodzące z węzła dziedziczą ten kolor — spójny wzorzec wizualny per gałąź.
+    const branchColorByNid = useMemo(() => {
+      const orbitColors = new Map(usedBranchInfos(nodes, branches).map(b => [b.key, b.color]))
+      const m = new Map<string, string>()
+      for (const n of nodes) {
+        m.set(String(n.data.nodeId), orbitColors.get(branchOf(n)) || '#94a3b8')
+      }
+      return m
+    }, [nodes, branches])
 
 
     const { lexsByNid, nidsByLex } = useMemo(() => {
@@ -322,6 +340,7 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
       slidesByNodeId={slidesByNodeId}
       contextNids={contextNids}
       planetRByNid={planetRByNid}
+      branchColorByNid={branchColorByNid}
       selectedNid={selectedNid} selectedLexId={selectedLexId}
       relatedLexIds={relatedLexIds}
       highlightedNids={highlightedNids}
@@ -341,13 +360,14 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
     slidesByNodeId: Map<string, number>
     contextNids: Set<string>
     planetRByNid: Map<string, number>
+    branchColorByNid: Map<string, string>
     selectedNid: string | null
     selectedLexId: string | null
     relatedLexIds: Set<string>
     highlightedNids: Set<string>
     treeId: string
   }) {
-    const { cx, cy, orbits, positions, nodes, edges, contextEdges, lexsByNid, slidesByNodeId, contextNids, planetRByNid,
+    const { cx, cy, orbits, positions, nodes, edges, contextEdges, lexsByNid, slidesByNodeId, contextNids, planetRByNid, branchColorByNid,
             selectedNid, selectedLexId, relatedLexIds, highlightedNids, treeId } = props
 
     const svgRef = useRef<SVGSVGElement>(null)
@@ -531,20 +551,20 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
           // Krawędź dotykająca węzła kontekstowego → przerywana
           const dashed = contextNids.has(fromNid) || contextNids.has(toNid)
           const sw = hasType ? (op > 0.3 ? 2 : 1.5) : (op > 0.3 ? 1.5 : 1)
-          // Offset końca linii o promień planety target — strzałka tuż przy krawędzi, nie w środku
+          // Kolor edge = kolor gałęzi source (= kolor orbity źródła). Spójny wzorzec planeta/orbita/label/edge.
+          const edgeColor = branchColorByNid.get(fromNid) || '#94a3b8'
           const targetR = planetRByNid.get(toNid) || 8
           const dx = b.x - a.x, dy = b.y - a.y
           const d = Math.hypot(dx, dy) || 1
-          // tipX/tipY = ostry koniec strzałki (przy krawędzi planety target)
           const tipX = hasType ? b.x - (dx / d) * (targetR + 2) : b.x
           const tipY = hasType ? b.y - (dy / d) * (targetR + 2) : b.y
-          // Strzałka jako <path>: trójkąt z tip→base, linia kończy się PRZY BAZIE (nie wchodzi w strzałkę).
+          // Strzałka jako <path> (NIE marker) — żeby dziedziczyć opacity linii, której marker nie respektuje.
           let arrowPath: string | null = null
           let lineEndX = tipX, lineEndY = tipY
           if (hasType) {
             const ang = Math.atan2(dy, dx)
-            const arrLen = 8     // długość strzałki
-            const arrWide = 4    // pół-szerokości u podstawy
+            const arrLen = 8
+            const arrWide = 4
             const baseX = tipX - arrLen * Math.cos(ang)
             const baseY = tipY - arrLen * Math.sin(ang)
             const w1x = baseX + arrWide * Math.sin(ang)
@@ -552,17 +572,16 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
             const w2x = baseX - arrWide * Math.sin(ang)
             const w2y = baseY + arrWide * Math.cos(ang)
             arrowPath = `M${tipX},${tipY} L${w1x},${w1y} L${w2x},${w2y} Z`
-            // Linia kończy się tuż za bazą strzałki — żeby nie przechodzić przez trójkąt
             lineEndX = baseX
             lineEndY = baseY
           }
           return (
             <g key={e.id}>
               <line x1={a.x} y1={a.y} x2={lineEndX} y2={lineEndY}
-                stroke="#fff" strokeOpacity={op} strokeWidth={sw}
+                stroke={edgeColor} strokeOpacity={op} strokeWidth={sw}
                 strokeDasharray={dashed ? '4 3' : undefined} />
               {arrowPath && (
-                <path d={arrowPath} fill="#fff" opacity={op} />
+                <path d={arrowPath} fill={edgeColor} opacity={op} />
               )}
               {showLabel && (
                 <Label x={(a.x + b.x) / 2} y={(a.y + b.y) / 2 - 4}
@@ -574,7 +593,7 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
         })}
       </>
       )
-    }, [edges, positions, neighborSet, focusNid, z, contextNids, planetRByNid])
+    }, [edges, positions, neighborSet, focusNid, z, contextNids, planetRByNid, branchColorByNid])
 
     // Krawędzie kontekstowe (lex co-occurrence) — kolor relacji, count<2 ukryte idle
     const contextLayer = useMemo(() => {

@@ -814,6 +814,9 @@ function forceRadial(radius, x2, y2) {
 const plugin = ({ React, ui, store, sdk, icons }) => {
   const { useMemo, useEffect, useState, useRef } = React;
   const { Share2, GitBranch, Maximize2 } = icons;
+  const NO_BRANCH = "_none";
+  const CONTEXT_BRANCH_PREFIX = "kontekst";
+  const planetRadius = (slides) => Math.min(8 + slides, 18);
   const useNav = sdk.create(() => ({
     treeId: null,
     selectedNid: null,
@@ -860,7 +863,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
         seen.add(k);
       }
     }
-    if (nodes.some((n) => !String(n.data.branch || ""))) used.push("_none");
+    if (nodes.some((n) => !String(n.data.branch || ""))) used.push(NO_BRANCH);
     return used.map((k, i) => {
       const def = byKey.get(k);
       const colorKey = def ? String(def.data.color || "") : "";
@@ -872,7 +875,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
       };
     });
   };
-  const branchOf = (n) => String(n.data.branch || "") || "_none";
+  const branchOf = (n) => String(n.data.branch || "") || NO_BRANCH;
   function LeftPanel() {
     const trees = store.usePosts("tree");
     const { treeId, selectedNid } = useNav();
@@ -971,18 +974,25 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
       const set2 = /* @__PURE__ */ new Set();
       for (const n of nodes) {
         const k = String(n.data.branch || "").toLowerCase();
-        if (k.startsWith("kontekst")) set2.add(String(n.data.nodeId));
+        if (k.startsWith(CONTEXT_BRANCH_PREFIX)) set2.add(String(n.data.nodeId));
       }
       return set2;
     }, [nodes]);
     const planetRByNid = useMemo(() => {
       const m2 = /* @__PURE__ */ new Map();
       for (const n of nodes) {
-        const slides = slidesByNodeId.get(n.id) || 0;
-        m2.set(String(n.data.nodeId), Math.min(8 + slides * 1, 18));
+        m2.set(String(n.data.nodeId), planetRadius(slidesByNodeId.get(n.id) || 0));
       }
       return m2;
     }, [nodes, slidesByNodeId]);
+    const branchColorByNid = useMemo(() => {
+      const orbitColors = new Map(usedBranchInfos(nodes, branches).map((b) => [b.key, b.color]));
+      const m2 = /* @__PURE__ */ new Map();
+      for (const n of nodes) {
+        m2.set(String(n.data.nodeId), orbitColors.get(branchOf(n)) || "#94a3b8");
+      }
+      return m2;
+    }, [nodes, branches]);
     const { lexsByNid, nidsByLex } = useMemo(() => {
       const lexById = new Map(lexicons.map((l) => [l.id, l]));
       const lexsByNid2 = /* @__PURE__ */ new Map();
@@ -1106,6 +1116,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
         slidesByNodeId,
         contextNids,
         planetRByNid,
+        branchColorByNid,
         selectedNid,
         selectedLexId,
         relatedLexIds,
@@ -1127,6 +1138,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
       slidesByNodeId,
       contextNids,
       planetRByNid,
+      branchColorByNid,
       selectedNid,
       selectedLexId,
       relatedLexIds,
@@ -1309,6 +1321,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
         const showLabel = e.data.type && !!neighborSet && isEdgeFocused(fromNid, toNid);
         const dashed = contextNids.has(fromNid) || contextNids.has(toNid);
         const sw = hasType ? op > 0.3 ? 2 : 1.5 : op > 0.3 ? 1.5 : 1;
+        const edgeColor = branchColorByNid.get(fromNid) || "#94a3b8";
         const targetR = planetRByNid.get(toNid) || 8;
         const dx = b.x - a2.x, dy = b.y - a2.y;
         const d = Math.hypot(dx, dy) || 1;
@@ -1338,13 +1351,13 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
               y1: a2.y,
               x2: lineEndX,
               y2: lineEndY,
-              stroke: "#fff",
+              stroke: edgeColor,
               strokeOpacity: op,
               strokeWidth: sw,
               strokeDasharray: dashed ? "4 3" : void 0
             }
           ),
-          arrowPath && /* @__PURE__ */ jsx("path", { d: arrowPath, fill: "#fff", opacity: op }),
+          arrowPath && /* @__PURE__ */ jsx("path", { d: arrowPath, fill: edgeColor, opacity: op }),
           showLabel && /* @__PURE__ */ jsx(
             Label,
             {
@@ -1359,7 +1372,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
           )
         ] }, e.id);
       }) });
-    }, [edges, positions, neighborSet, focusNid, z, contextNids, planetRByNid]);
+    }, [edges, positions, neighborSet, focusNid, z, contextNids, planetRByNid, branchColorByNid]);
     const contextLayer = useMemo(() => {
       return /* @__PURE__ */ jsx(Fragment, { children: contextEdges.map((ce, i) => {
         const a2 = positions.get(ce.from);
