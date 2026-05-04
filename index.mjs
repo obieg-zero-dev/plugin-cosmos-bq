@@ -983,16 +983,17 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
       }
       return m2;
     }, [nodes, slidesByNodeId]);
-    const { typedEdgeColor, untypedEdgeColor } = useMemo(() => {
-      const findColor = (prefix, fallback) => {
-        const b = branches.find((x2) => String(x2.data.key).toLowerCase().startsWith(prefix));
-        return b ? COLOR_MAP[String(b.data.color || "")] || fallback : fallback;
-      };
-      return {
-        typedEdgeColor: findColor("epok", "#fbbf24"),
-        untypedEdgeColor: findColor("lektur", "#5eb3ff")
-      };
-    }, [branches]);
+    const branchColorByNid = useMemo(() => {
+      const branchByKey = new Map(branches.map((b) => [String(b.data.key), b]));
+      const m2 = /* @__PURE__ */ new Map();
+      for (const n of nodes) {
+        const k = String(n.data.branch || "") || "_none";
+        const def = branchByKey.get(k);
+        const colorKey = def ? String(def.data.color || "") : "";
+        m2.set(String(n.data.nodeId), COLOR_MAP[colorKey] || "#94a3b8");
+      }
+      return m2;
+    }, [nodes, branches]);
     const { lexsByNid, nidsByLex } = useMemo(() => {
       const lexById = new Map(lexicons.map((l) => [l.id, l]));
       const lexsByNid2 = /* @__PURE__ */ new Map();
@@ -1116,8 +1117,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
         slidesByNodeId,
         contextNids,
         planetRByNid,
-        typedEdgeColor,
-        untypedEdgeColor,
+        branchColorByNid,
         selectedNid,
         selectedLexId,
         relatedLexIds,
@@ -1139,8 +1139,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
       slidesByNodeId,
       contextNids,
       planetRByNid,
-      typedEdgeColor,
-      untypedEdgeColor,
+      branchColorByNid,
       selectedNid,
       selectedLexId,
       relatedLexIds,
@@ -1322,7 +1321,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
         const op = !neighborSet ? idleOp : isEdgeFocused(fromNid, toNid) ? hasType ? 0.95 : 0.7 : isEdgeRelevant(fromNid, toNid) ? hasType ? 0.5 : 0.25 : 0.02;
         const showLabel = e.data.type && !!neighborSet && isEdgeFocused(fromNid, toNid);
         const dashed = contextNids.has(fromNid) || contextNids.has(toNid);
-        const edgeColor = hasType ? typedEdgeColor : untypedEdgeColor;
+        const edgeColor = branchColorByNid.get(fromNid) || "#94a3b8";
         const sw = hasType ? op > 0.3 ? 2 : 1.5 : op > 0.3 ? 1.5 : 1;
         const targetR = planetRByNid.get(toNid) || 8;
         const dx = b.x - a2.x, dy = b.y - a2.y;
@@ -1358,7 +1357,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
           )
         ] }, e.id);
       }) });
-    }, [edges, positions, neighborSet, focusNid, z, contextNids, planetRByNid, typedEdgeColor, untypedEdgeColor]);
+    }, [edges, positions, neighborSet, focusNid, z, contextNids, planetRByNid, branchColorByNid]);
     const contextLayer = useMemo(() => {
       return /* @__PURE__ */ jsx(Fragment, { children: contextEdges.map((ce, i) => {
         const a2 = positions.get(ce.from);

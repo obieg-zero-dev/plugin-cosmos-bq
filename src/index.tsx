@@ -189,19 +189,19 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
       return m
     }, [nodes, slidesByNodeId])
 
-    // Kolory krawędzi: jeden kolor PER TYP edge.
-    // - progression (typed) = kolor gałęzi "epoki" (główna ścieżka czasowa)
-    // - bez type (branch) = kolor gałęzi "lektury" (boczne odnogi)
-    const { typedEdgeColor, untypedEdgeColor } = useMemo(() => {
-      const findColor = (prefix: string, fallback: string) => {
-        const b = branches.find(x => String(x.data.key).toLowerCase().startsWith(prefix))
-        return b ? (COLOR_MAP[String(b.data.color || '')] || fallback) : fallback
+    // Kolor krawędzi = kolor gałęzi SOURCE węzła (jednolity wzorzec).
+    // Edge wychodzący z lektury → kolor lektury. Z epoki → kolor epoki. Bez hardcode prefixów.
+    const branchColorByNid = useMemo(() => {
+      const branchByKey = new Map(branches.map(b => [String(b.data.key), b]))
+      const m = new Map<string, string>()
+      for (const n of nodes) {
+        const k = String(n.data.branch || '') || '_none'
+        const def = branchByKey.get(k)
+        const colorKey = def ? String(def.data.color || '') : ''
+        m.set(String(n.data.nodeId), COLOR_MAP[colorKey] || '#94a3b8')
       }
-      return {
-        typedEdgeColor:   findColor('epok',   '#fbbf24'),
-        untypedEdgeColor: findColor('lektur', '#5eb3ff'),
-      }
-    }, [branches])
+      return m
+    }, [nodes, branches])
 
     const { lexsByNid, nidsByLex } = useMemo(() => {
       const lexById = new Map(lexicons.map(l => [l.id, l]))
@@ -335,8 +335,7 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
       slidesByNodeId={slidesByNodeId}
       contextNids={contextNids}
       planetRByNid={planetRByNid}
-      typedEdgeColor={typedEdgeColor}
-      untypedEdgeColor={untypedEdgeColor}
+      branchColorByNid={branchColorByNid}
       selectedNid={selectedNid} selectedLexId={selectedLexId}
       relatedLexIds={relatedLexIds}
       highlightedNids={highlightedNids}
@@ -356,15 +355,14 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
     slidesByNodeId: Map<string, number>
     contextNids: Set<string>
     planetRByNid: Map<string, number>
-    typedEdgeColor: string
-    untypedEdgeColor: string
+    branchColorByNid: Map<string, string>
     selectedNid: string | null
     selectedLexId: string | null
     relatedLexIds: Set<string>
     highlightedNids: Set<string>
     treeId: string
   }) {
-    const { cx, cy, orbits, positions, nodes, edges, contextEdges, lexsByNid, slidesByNodeId, contextNids, planetRByNid, typedEdgeColor, untypedEdgeColor,
+    const { cx, cy, orbits, positions, nodes, edges, contextEdges, lexsByNid, slidesByNodeId, contextNids, planetRByNid, branchColorByNid,
             selectedNid, selectedLexId, relatedLexIds, highlightedNids, treeId } = props
 
     const svgRef = useRef<SVGSVGElement>(null)
@@ -547,8 +545,8 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
           const showLabel = e.data.type && !!neighborSet && isEdgeFocused(fromNid, toNid)
           // Krawędź dotykająca węzła kontekstowego → przerywana
           const dashed = contextNids.has(fromNid) || contextNids.has(toNid)
-          // Jeden kolor PER TYP edge: typed → kolor "epoki", bez type → kolor "lektury"
-          const edgeColor = hasType ? typedEdgeColor : untypedEdgeColor
+          // Kolor edge = kolor gałęzi SOURCE węzła (jednolity wzorzec, taki sam jak planeta źródła)
+          const edgeColor = branchColorByNid.get(fromNid) || '#94a3b8'
           const sw = hasType ? (op > 0.3 ? 2 : 1.5) : (op > 0.3 ? 1.5 : 1)
           // Offset końca linii o promień planety target — strzałka tuż przy krawędzi, nie w środku
           const targetR = planetRByNid.get(toNid) || 8
@@ -572,7 +570,7 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
         })}
       </>
       )
-    }, [edges, positions, neighborSet, focusNid, z, contextNids, planetRByNid, typedEdgeColor, untypedEdgeColor])
+    }, [edges, positions, neighborSet, focusNid, z, contextNids, planetRByNid, branchColorByNid])
 
     // Krawędzie kontekstowe (lex co-occurrence) — kolor relacji, count<2 ukryte idle
     const contextLayer = useMemo(() => {
