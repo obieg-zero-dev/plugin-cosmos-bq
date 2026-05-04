@@ -1036,7 +1036,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
       const nidSet = new Set(simNodes.map((n) => n.id));
       const simLinks = edges.map((e) => ({ source: String(e.data.fromNid), target: String(e.data.toNid) })).filter((l) => nidSet.has(l.source) && nidSet.has(l.target));
       const sim = forceSimulation(simNodes).force("radial", forceRadial((d) => d.r, cx, cy).strength(0.9)).force("collide", forceCollide(26)).force("link", forceLink(simLinks).id((d) => d.id).distance(80).strength(0.18)).force("charge", forceManyBody().strength(-22)).stop();
-      for (let i = 0; i < 250; i++) sim.tick();
+      for (let i = 0; i < 150; i++) sim.tick();
       const positions2 = /* @__PURE__ */ new Map();
       for (const sn of simNodes) {
         positions2.set(sn.id, { x: sn.x, y: sn.y, color: sn.color });
@@ -1157,67 +1157,71 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
     };
     const showAllLabels = zoomPct >= 150;
     const labelOpacity = (sel, hov) => sel ? 1 : hov ? 0.95 : showAllLabels ? 0.8 : 0;
-    const orbitsLayer = useMemo(() => /* @__PURE__ */ jsxs(Fragment, { children: [
-      orbits.map((o) => /* @__PURE__ */ jsx(
-        "circle",
-        {
-          cx,
-          cy,
-          r: o.radius,
-          fill: "none",
-          stroke: o.color,
-          strokeOpacity: 0.35,
-          strokeDasharray: "3 5"
-        },
-        "o-" + o.key
-      )),
-      orbits.map((o) => /* @__PURE__ */ jsx(
-        "text",
-        {
-          x: cx,
-          y: cy - o.radius - 6,
-          textAnchor: "middle",
-          fontSize: 10,
-          fill: o.color,
-          opacity: 0.85,
-          style: { pointerEvents: "none" },
-          children: o.label
-        },
-        "ol-" + o.key
-      ))
-    ] }), [orbits, cx, cy]);
-    const edgesLayer = useMemo(() => /* @__PURE__ */ jsx(Fragment, { children: edges.map((e) => {
-      const a2 = positions.get(String(e.data.fromNid));
-      const b = positions.get(String(e.data.toNid));
-      if (!a2 || !b) return null;
-      return /* @__PURE__ */ jsxs("g", { children: [
-        /* @__PURE__ */ jsx(
-          "line",
+    const orbitsLayer = useMemo(() => {
+      return /* @__PURE__ */ jsxs(Fragment, { children: [
+        orbits.map((o) => /* @__PURE__ */ jsx(
+          "circle",
           {
-            x1: a2.x,
-            y1: a2.y,
-            x2: b.x,
-            y2: b.y,
-            stroke: "#fff",
-            strokeOpacity: 0.25,
-            strokeWidth: 1
-          }
-        ),
-        e.data.type && /* @__PURE__ */ jsx(
+            cx,
+            cy,
+            r: o.radius,
+            fill: "none",
+            stroke: o.color,
+            strokeOpacity: 0.35,
+            strokeDasharray: "3 5"
+          },
+          "o-" + o.key
+        )),
+        orbits.map((o) => /* @__PURE__ */ jsx(
           "text",
           {
-            x: (a2.x + b.x) / 2,
-            y: (a2.y + b.y) / 2 - 4,
-            fontSize: 9,
-            fill: "#cbd5e1",
+            x: cx,
+            y: cy - o.radius - 6,
             textAnchor: "middle",
-            opacity: 0.7,
+            fontSize: 10,
+            fill: o.color,
+            opacity: 0.85,
             style: { pointerEvents: "none" },
-            children: String(e.data.type)
-          }
-        )
-      ] }, e.id);
-    }) }), [edges, positions]);
+            children: o.label
+          },
+          "ol-" + o.key
+        ))
+      ] });
+    }, [orbits, cx, cy]);
+    const edgesLayer = useMemo(() => {
+      return /* @__PURE__ */ jsx(Fragment, { children: edges.map((e) => {
+        const a2 = positions.get(String(e.data.fromNid));
+        const b = positions.get(String(e.data.toNid));
+        if (!a2 || !b) return null;
+        return /* @__PURE__ */ jsxs("g", { children: [
+          /* @__PURE__ */ jsx(
+            "line",
+            {
+              x1: a2.x,
+              y1: a2.y,
+              x2: b.x,
+              y2: b.y,
+              stroke: "#fff",
+              strokeOpacity: 0.25,
+              strokeWidth: 1
+            }
+          ),
+          e.data.type && /* @__PURE__ */ jsx(
+            "text",
+            {
+              x: (a2.x + b.x) / 2,
+              y: (a2.y + b.y) / 2 - 4,
+              fontSize: 9,
+              fill: "#cbd5e1",
+              textAnchor: "middle",
+              opacity: 0.7,
+              style: { pointerEvents: "none" },
+              children: String(e.data.type)
+            }
+          )
+        ] }, e.id);
+      }) });
+    }, [edges, positions]);
     const highlightLines = useMemo(() => {
       if (!selectedLexId) return null;
       const nids = Array.from(highlightedNids);
@@ -1246,79 +1250,81 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
       }
       return /* @__PURE__ */ jsx(Fragment, { children: lines });
     }, [selectedLexId, highlightedNids, positions]);
-    const planetsLayer = useMemo(() => /* @__PURE__ */ jsx(Fragment, { children: nodes.map((n) => {
-      const nid = String(n.data.nodeId);
-      const p = positions.get(nid);
-      if (!p) return null;
-      const isSel = selectedNid === nid;
-      const isHl = highlightedNids.has(nid);
-      const lexs = lexsByNid.get(nid) || [];
-      return /* @__PURE__ */ jsxs(
-        "g",
-        {
-          onMouseEnter: () => setHoverIfIdle(nid),
-          onMouseLeave: () => setHoverIfIdle(null),
-          children: [
-            (isSel || isHl) && /* @__PURE__ */ jsx(
-              "circle",
-              {
-                cx: p.x,
-                cy: p.y,
-                r: 22,
-                fill: isHl ? "#fde68a" : p.color,
-                opacity: 0.3
-              }
-            ),
-            /* @__PURE__ */ jsx(
-              "circle",
-              {
-                cx: p.x,
-                cy: p.y,
-                r: isSel ? 14 : 10,
-                fill: p.color,
-                stroke: isSel || isHl ? "#fff" : "none",
-                strokeWidth: 2,
-                style: { cursor: "pointer" },
-                onClick: () => tryClick(() => selectByNid(treeId, nid))
-              }
-            ),
-            lexs.map((lex, i) => {
-              const ang = i / Math.max(lexs.length, 1) * Math.PI * 2;
-              const mx = p.x + Math.cos(ang) * 22;
-              const my = p.y + Math.sin(ang) * 22;
-              const mc = catColor(String(lex.data.category || ""));
-              const moonSel = selectedLexId === lex.id;
-              const moonRel = relatedLexIds.has(lex.id);
-              return /* @__PURE__ */ jsxs("g", { children: [
-                moonRel && /* @__PURE__ */ jsx("circle", { cx: mx, cy: my, r: 6, fill: "none", stroke: "#fde68a", strokeOpacity: 0.55, strokeWidth: 1 }),
-                /* @__PURE__ */ jsx(
-                  "circle",
-                  {
-                    cx: mx,
-                    cy: my,
-                    r: moonSel ? 4.5 : 3,
-                    fill: mc,
-                    stroke: moonSel ? "#fff" : "none",
-                    strokeWidth: 1,
-                    style: { cursor: "pointer" },
-                    onClick: (e) => {
-                      e.stopPropagation();
-                      tryClick(() => selectByLex(lex.id));
-                    },
-                    children: /* @__PURE__ */ jsxs("title", { children: [
-                      String(lex.data.term),
-                      " · ",
-                      String(lex.data.category || "inne")
-                    ] })
-                  }
-                )
-              ] }, lex.id);
-            })
-          ]
-        },
-        n.id
-      );
-    }) }), [nodes, positions, lexsByNid, selectedNid, selectedLexId, relatedLexIds, highlightedNids, treeId]);
+    const planetsLayer = useMemo(() => {
+      return /* @__PURE__ */ jsx(Fragment, { children: nodes.map((n) => {
+        const nid = String(n.data.nodeId);
+        const p = positions.get(nid);
+        if (!p) return null;
+        const isSel = selectedNid === nid;
+        const isHl = highlightedNids.has(nid);
+        const lexs = lexsByNid.get(nid) || [];
+        return /* @__PURE__ */ jsxs(
+          "g",
+          {
+            onMouseEnter: () => setHoverIfIdle(nid),
+            onMouseLeave: () => setHoverIfIdle(null),
+            children: [
+              (isSel || isHl) && /* @__PURE__ */ jsx(
+                "circle",
+                {
+                  cx: p.x,
+                  cy: p.y,
+                  r: 22,
+                  fill: isHl ? "#fde68a" : p.color,
+                  opacity: 0.3
+                }
+              ),
+              /* @__PURE__ */ jsx(
+                "circle",
+                {
+                  cx: p.x,
+                  cy: p.y,
+                  r: isSel ? 14 : 10,
+                  fill: p.color,
+                  stroke: isSel || isHl ? "#fff" : "none",
+                  strokeWidth: 2,
+                  style: { cursor: "pointer" },
+                  onClick: () => tryClick(() => selectByNid(treeId, nid))
+                }
+              ),
+              lexs.map((lex, i) => {
+                const ang = i / Math.max(lexs.length, 1) * Math.PI * 2;
+                const mx = p.x + Math.cos(ang) * 22;
+                const my = p.y + Math.sin(ang) * 22;
+                const mc = catColor(String(lex.data.category || ""));
+                const moonSel = selectedLexId === lex.id;
+                const moonRel = relatedLexIds.has(lex.id);
+                return /* @__PURE__ */ jsxs("g", { children: [
+                  moonRel && /* @__PURE__ */ jsx("circle", { cx: mx, cy: my, r: 6, fill: "none", stroke: "#fde68a", strokeOpacity: 0.55, strokeWidth: 1 }),
+                  /* @__PURE__ */ jsx(
+                    "circle",
+                    {
+                      cx: mx,
+                      cy: my,
+                      r: moonSel ? 4.5 : 3,
+                      fill: mc,
+                      stroke: moonSel ? "#fff" : "none",
+                      strokeWidth: 1,
+                      style: { cursor: "pointer" },
+                      onClick: (e) => {
+                        e.stopPropagation();
+                        tryClick(() => selectByLex(lex.id));
+                      },
+                      children: /* @__PURE__ */ jsxs("title", { children: [
+                        String(lex.data.term),
+                        " · ",
+                        String(lex.data.category || "inne")
+                      ] })
+                    }
+                  )
+                ] }, lex.id);
+              })
+            ]
+          },
+          n.id
+        );
+      }) });
+    }, [nodes, positions, lexsByNid, selectedNid, selectedLexId, relatedLexIds, highlightedNids, treeId]);
     const labelsLayer = useMemo(() => {
       const z = Math.max(zoomPct / 100, 1);
       const fs = 10 / z;
@@ -1561,7 +1567,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
     label: "Kosmos BQ",
     description: "Kosmiczny widok grafu BQ — orbity gałęzi + księżyce terminów, układ d3-force",
     icon: Share2 || GitBranch,
-    version: "0.8.1"
+    version: "0.8.2"
   };
 };
 export {
