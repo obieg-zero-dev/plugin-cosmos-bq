@@ -1222,7 +1222,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
     const Label = (p) => {
       const baseSize = p.size ?? 10;
       const fs = baseSize / z;
-      const sw = 2.5 / z;
+      const sw = baseSize * 0.18 / z;
       return /* @__PURE__ */ jsx(
         "text",
         {
@@ -1241,7 +1241,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
           },
           stroke: "#0a0e1a",
           strokeWidth: sw,
-          strokeOpacity: 0.85,
+          strokeOpacity: 0.7,
           children: p.text
         }
       );
@@ -1284,7 +1284,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
         const b = positions.get(toNid);
         if (!a2 || !b) return null;
         const op = !neighborSet ? 0.18 : isEdgeFocused(fromNid, toNid) ? 0.7 : isEdgeRelevant(fromNid, toNid) ? 0.3 : 0.02;
-        const showLabel = e.data.type && (!neighborSet || isEdgeFocused(fromNid, toNid));
+        const showLabel = e.data.type && !!neighborSet && isEdgeFocused(fromNid, toNid);
         return /* @__PURE__ */ jsxs("g", { children: [
           /* @__PURE__ */ jsx(
             "line",

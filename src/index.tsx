@@ -438,7 +438,7 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
       sel ? 1 : hov ? 0.95 : showAllLabels ? 0.8 : 0
 
     // Spójny renderer labels — anti-scale przez podział size/strokeWidth przez zoom.
-    // Wynik: stała wielkość ekranowa niezależnie od zoomu. Outline ciemny zawsze.
+    // Outline ciemny ale CIENKI (nie więcej niż 18% rozmiaru fontu) — żeby tekst nie tonął w masie.
     const z = Math.max(zoomPct / 100, 0.5)
     const Label = (p: {
       x: number; y: number; text: string; color: string;
@@ -446,7 +446,7 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
     }) => {
       const baseSize = p.size ?? 10
       const fs = baseSize / z
-      const sw = 2.5 / z
+      const sw = (baseSize * 0.18) / z
       return (
         <text x={p.x} y={p.y} textAnchor="middle"
           fontSize={fs}
@@ -459,7 +459,7 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
             fontWeight: p.weight ?? 500,
             textTransform: p.uppercase ? 'uppercase' : 'none',
           }}
-          stroke="#0a0e1a" strokeWidth={sw} strokeOpacity={0.85}>
+          stroke="#0a0e1a" strokeWidth={sw} strokeOpacity={0.7}>
           {p.text}
         </text>
       )
@@ -495,7 +495,8 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
             : isEdgeFocused(fromNid, toNid) ? 0.7
             : isEdgeRelevant(fromNid, toNid) ? 0.3
             : 0.02
-          const showLabel = e.data.type && (!neighborSet || isEdgeFocused(fromNid, toNid))
+          // Etykieta krawędzi: TYLKO w focus mode dla focused edge (idle ukryte → brak chaosu)
+          const showLabel = e.data.type && !!neighborSet && isEdgeFocused(fromNid, toNid)
           return (
             <g key={e.id}>
               <line x1={a.x} y1={a.y} x2={b.x} y2={b.y}
