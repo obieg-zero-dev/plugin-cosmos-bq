@@ -813,7 +813,10 @@ function forceRadial(radius, x2, y2) {
 }
 const plugin = ({ React, ui, store, sdk, icons }) => {
   const { useMemo, useEffect, useState, useRef } = React;
-  const { Share2, GitBranch, Edit3, Maximize2 } = icons;
+  const { Share2, GitBranch, Maximize2 } = icons;
+  const NO_BRANCH = "_none";
+  const CONTEXT_BRANCH_PREFIX = "kontekst";
+  const planetRadius = (slides) => Math.min(8 + slides, 18);
   const useNav = sdk.create(() => ({
     treeId: null,
     selectedNid: null,
@@ -824,9 +827,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
     useNav.setState({ selectedNid: nid, selectedLexId: null });
     if (node) sdk.shared.setState({ bq: { treeId, nodeId: nid, postId: node.id } });
   };
-  const selectByLex = (lexId) => {
-    useNav.setState({ selectedLexId: lexId, selectedNid: null });
-  };
+  const selectByLex = (lexId) => useNav.setState({ selectedLexId: lexId, selectedNid: null });
   const CAT_COLORS = {
     motyw: "#f59e0b",
     topos: "#ef4444",
@@ -837,7 +838,6 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
     pojecie: "#fde68a",
     "pojęcie": "#fde68a"
   };
-  const catColor = (c2) => CAT_COLORS[c2] || "#94a3b8";
   const COLOR_MAP = {
     primary: "#4a90e2",
     secondary: "#9b59b6",
@@ -849,30 +849,40 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
     neutral: "#94a3b8"
   };
   const PALETTE = ["#4a90e2", "#e91e63", "#22c55e", "#f59e0b", "#9b59b6", "#00bcd4", "#ef4444", "#94a3b8"];
+  const catColor = (c2) => CAT_COLORS[c2] || "#94a3b8";
+  const branchOf = (n) => String(n.data.branch || "") || NO_BRANCH;
   const usedBranchInfos = (nodes, branches) => {
     const byKey = new Map(branches.map((b) => [String(b.data.key), b]));
     const used = [];
     const seen = /* @__PURE__ */ new Set();
     for (const b of branches) {
       const k = String(b.data.key);
-      if (!seen.has(k) && nodes.some((n) => String(n.data.branch || "") === k)) {
+      if (!seen.has(k) && nodes.some((n) => branchOf(n) === k)) {
         used.push(k);
         seen.add(k);
       }
     }
-    if (nodes.some((n) => !String(n.data.branch || ""))) used.push("_none");
+    if (nodes.some((n) => branchOf(n) === NO_BRANCH)) used.push(NO_BRANCH);
     return used.map((k, i) => {
       const def = byKey.get(k);
-      const colorKey = def ? String(def.data.color || "") : "";
       return {
         key: k,
         label: def ? String(def.data.label) : "bez gałęzi",
-        color: COLOR_MAP[colorKey] || PALETTE[i % PALETTE.length],
+        color: COLOR_MAP[String((def == null ? void 0 : def.data.color) || "")] || PALETTE[i % PALETTE.length],
         def
       };
     });
   };
-  const branchOf = (n) => String(n.data.branch || "") || "_none";
+  const Dot = ({ color }) => /* @__PURE__ */ jsx("span", { style: { display: "inline-block", width: 8, height: 8, borderRadius: 4, background: color, marginRight: 6 } });
+  const tierLabel = (branchKey, tier) => {
+    const n = String(tier ?? "").trim();
+    if (!n || n === "0") return "";
+    const k = String(branchKey || "").toLowerCase();
+    if (k.startsWith("epok")) return `epoka ${n}`;
+    if (k.startsWith("lektur")) return `poziom ${n}`;
+    if (k.startsWith(CONTEXT_BRANCH_PREFIX)) return "";
+    return `tier ${n}`;
+  };
   function LeftPanel() {
     const trees = store.usePosts("tree");
     const { treeId, selectedNid } = useNav();
@@ -929,7 +939,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
           ] }),
           groups.map((g) => /* @__PURE__ */ jsxs(React.Fragment, { children: [
             /* @__PURE__ */ jsxs(ui.Cell, { label: true, children: [
-              /* @__PURE__ */ jsx("span", { style: { display: "inline-block", width: 8, height: 8, borderRadius: 4, background: g.color, marginRight: 6 } }),
+              /* @__PURE__ */ jsx(Dot, { color: g.color }),
               g.label
             ] }),
             g.nodes.map((n) => {
@@ -939,7 +949,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
                 {
                   active: selectedNid === nid,
                   label: String(n.data.title),
-                  detail: `tier ${n.data.tier ?? "?"}`,
+                  detail: tierLabel(g.key, n.data.tier),
                   onClick: () => selectByNid(treeId, nid)
                 },
                 n.id
@@ -955,8 +965,41 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
     const nodes = store.useChildren(treeId || "", "node");
     const edges = store.useChildren(treeId || "", "edge");
     const branches = store.useChildren(treeId || "", "branch");
+    const relTypes = store.useChildren(treeId || "", "relType");
     const lexicons = store.useChildren(treeId || "", "lexicon");
     const allLexNodes = store.usePosts("lexNode");
+    const allContent = store.usePosts("content");
+    const slidesByNodeId = useMemo(() => {
+      const m2 = /* @__PURE__ */ new Map();
+      for (const c2 of allContent) {
+        if (String(c2.data.contentType) === "quiz") continue;
+        m2.set(c2.parentId, (m2.get(c2.parentId) || 0) + 1);
+      }
+      return m2;
+    }, [allContent]);
+    const contextNids = useMemo(() => {
+      const set2 = /* @__PURE__ */ new Set();
+      for (const n of nodes) {
+        const k = String(n.data.branch || "").toLowerCase();
+        if (k.startsWith(CONTEXT_BRANCH_PREFIX)) set2.add(String(n.data.nodeId));
+      }
+      return set2;
+    }, [nodes]);
+    const planetRByNid = useMemo(() => {
+      const m2 = /* @__PURE__ */ new Map();
+      for (const n of nodes) {
+        m2.set(String(n.data.nodeId), planetRadius(slidesByNodeId.get(n.id) || 0));
+      }
+      return m2;
+    }, [nodes, slidesByNodeId]);
+    const branchColorByNid = useMemo(() => {
+      const orbitColors = new Map(usedBranchInfos(nodes, branches).map((b) => [b.key, b.color]));
+      const m2 = /* @__PURE__ */ new Map();
+      for (const n of nodes) {
+        m2.set(String(n.data.nodeId), orbitColors.get(branchOf(n)) || "#94a3b8");
+      }
+      return m2;
+    }, [nodes, branches]);
     const { lexsByNid, nidsByLex } = useMemo(() => {
       const lexById = new Map(lexicons.map((l) => [l.id, l]));
       const lexsByNid2 = /* @__PURE__ */ new Map();
@@ -972,6 +1015,45 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
       }
       return { lexsByNid: lexsByNid2, nidsByLex: nidsByLex2 };
     }, [lexicons, allLexNodes]);
+    const contextEdges = useMemo(() => {
+      const map = /* @__PURE__ */ new Map();
+      for (const lex of lexicons) {
+        const nidsArr = Array.from(nidsByLex.get(lex.id) || []);
+        if (nidsArr.length < 2) continue;
+        const rel = String(lex.data.relation || "inne");
+        for (let i = 0; i < nidsArr.length; i++)
+          for (let j = i + 1; j < nidsArr.length; j++) {
+            const [a2, b] = [nidsArr[i], nidsArr[j]].sort();
+            const key = `${a2}:${b}`;
+            if (!map.has(key)) map.set(key, { from: a2, to: b, rels: /* @__PURE__ */ new Map() });
+            const e = map.get(key);
+            e.rels.set(rel, (e.rels.get(rel) || 0) + 1);
+          }
+      }
+      const relMap = new Map(relTypes.map((r) => [String(r.data.key), r]));
+      const out = [];
+      for (const { from, to, rels } of map.values()) {
+        let best = "inne", bestCount = 0, total = 0;
+        for (const [r, c2] of rels) {
+          total += c2;
+          if (c2 > bestCount) {
+            best = r;
+            bestCount = c2;
+          }
+        }
+        const def = relMap.get(best);
+        out.push({
+          from,
+          to,
+          relation: best,
+          relLabel: def ? String(def.data.label) : best,
+          relColor: COLOR_MAP[String((def == null ? void 0 : def.data.color) || "")] || "#94a3b8",
+          count: total,
+          strength: Math.min(0.4 + total * 0.15, 0.9)
+        });
+      }
+      return out;
+    }, [lexicons, relTypes, nidsByLex]);
     const highlightedNids = selectedLexId ? nidsByLex.get(selectedLexId) || /* @__PURE__ */ new Set() : /* @__PURE__ */ new Set();
     const relatedLexIds = useMemo(() => {
       if (!selectedLexId) return /* @__PURE__ */ new Set();
@@ -1036,7 +1118,12 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
         positions,
         nodes,
         edges,
+        contextEdges,
         lexsByNid,
+        slidesByNodeId,
+        contextNids,
+        planetRByNid,
+        branchColorByNid,
         selectedNid,
         selectedLexId,
         relatedLexIds,
@@ -1053,7 +1140,12 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
       positions,
       nodes,
       edges,
+      contextEdges,
       lexsByNid,
+      slidesByNodeId,
+      contextNids,
+      planetRByNid,
+      branchColorByNid,
       selectedNid,
       selectedLexId,
       relatedLexIds,
@@ -1094,11 +1186,11 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
       const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
       const { x: px, y: py } = screenToVb(e.clientX, e.clientY);
       const v = viewRef.current;
-      const z = Math.max(0.5, Math.min(5, v.zoom * factor));
-      const k = z / v.zoom;
-      viewRef.current = { zoom: z, x: px - k * (px - v.x), y: py - k * (py - v.y) };
+      const z2 = Math.max(0.5, Math.min(5, v.zoom * factor));
+      const k = z2 / v.zoom;
+      viewRef.current = { zoom: z2, x: px - k * (px - v.x), y: py - k * (py - v.y) };
       applyView();
-      setZoomPct(Math.round(z * 100));
+      setZoomPct(Math.round(z2 * 100));
     };
     const onMouseDown = (e) => {
       if (e.button !== 0) return;
@@ -1138,8 +1230,113 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
       if (dragRef.current) return;
       setHovered((prev) => prev === nid ? prev : nid);
     };
+    const onBackgroundClick = () => {
+      if (wasMovedRef.current) {
+        wasMovedRef.current = false;
+        return;
+      }
+      useNav.setState({ selectedNid: null, selectedLexId: null });
+    };
+    const focusNid = selectedNid;
+    const neighborSet = useMemo(() => {
+      if (!focusNid) return null;
+      const set2 = /* @__PURE__ */ new Set([focusNid]);
+      for (const e of edges) {
+        const f = String(e.data.fromNid), t = String(e.data.toNid);
+        if (f === focusNid) set2.add(t);
+        if (t === focusNid) set2.add(f);
+      }
+      for (const ce of contextEdges) {
+        if (ce.from === focusNid) set2.add(ce.to);
+        if (ce.to === focusNid) set2.add(ce.from);
+      }
+      return set2;
+    }, [focusNid, edges, contextEdges]);
+    const isNodeDimmed = (nid) => !!neighborSet && !neighborSet.has(nid);
+    const isEdgeFocused = (a2, b) => !!neighborSet && (a2 === focusNid || b === focusNid);
+    const isEdgeRelevant = (a2, b) => !!neighborSet && neighborSet.has(a2) && neighborSet.has(b);
     const showAllLabels = zoomPct >= 150;
     const labelOpacity = (sel, hov) => sel ? 1 : hov ? 0.95 : showAllLabels ? 0.8 : 0;
+    const z = Math.max(zoomPct / 100, 0.5);
+    const Label = (p) => {
+      const baseSize = p.size ?? 10;
+      const fs = baseSize / z;
+      const sw = baseSize * 0.18 / z;
+      return /* @__PURE__ */ jsx(
+        "text",
+        {
+          x: p.x,
+          y: p.y,
+          textAnchor: "middle",
+          fontSize: fs,
+          fill: p.color,
+          opacity: p.opacity ?? 1,
+          style: {
+            pointerEvents: "none",
+            paintOrder: "stroke",
+            letterSpacing: (p.uppercase ? 0.6 : 0.2) / z,
+            fontWeight: p.weight ?? 500,
+            textTransform: p.uppercase ? "uppercase" : "none"
+          },
+          stroke: "#0a0e1a",
+          strokeWidth: sw,
+          strokeOpacity: 0.7,
+          children: p.text
+        }
+      );
+    };
+    const edgeOpacity = (focused, relevant, idle, focusedOp, relevantOp, dim = 0.02) => !neighborSet ? idle : focused ? focusedOp : relevant ? relevantOp : dim;
+    const arrowGeom = (a2, b, targetR) => {
+      const dx = b.x - a2.x, dy = b.y - a2.y;
+      const d = Math.hypot(dx, dy) || 1;
+      const tipX = b.x - dx / d * (targetR + 2);
+      const tipY = b.y - dy / d * (targetR + 2);
+      const ang = Math.atan2(dy, dx);
+      const arrLen = 8, arrWide = 4;
+      const baseX = tipX - arrLen * Math.cos(ang);
+      const baseY = tipY - arrLen * Math.sin(ang);
+      const w1x = baseX + arrWide * Math.sin(ang);
+      const w1y = baseY - arrWide * Math.cos(ang);
+      const w2x = baseX - arrWide * Math.sin(ang);
+      const w2y = baseY + arrWide * Math.cos(ang);
+      return {
+        path: `M${tipX},${tipY} L${w1x},${w1y} L${w2x},${w2y} Z`,
+        lineEnd: { x: baseX, y: baseY }
+      };
+    };
+    const Edge = (p) => {
+      const arrow = p.arrow ? arrowGeom(p.a, p.b, p.arrow.targetR) : null;
+      const lineEnd = arrow ? arrow.lineEnd : p.b;
+      return /* @__PURE__ */ jsxs(Fragment, { children: [
+        /* @__PURE__ */ jsx(
+          "line",
+          {
+            x1: p.a.x,
+            y1: p.a.y,
+            x2: lineEnd.x,
+            y2: lineEnd.y,
+            stroke: p.color,
+            strokeOpacity: p.op,
+            strokeWidth: p.sw,
+            strokeLinecap: "round",
+            strokeDasharray: p.dashed ? "4 3" : void 0
+          }
+        ),
+        arrow && /* @__PURE__ */ jsx("path", { d: arrow.path, fill: p.color, opacity: p.op }),
+        p.label && /* @__PURE__ */ jsx(
+          Label,
+          {
+            x: (p.a.x + p.b.x) / 2,
+            y: (p.a.y + p.b.y) / 2 - 4,
+            text: p.label.text,
+            color: p.label.color,
+            size: p.label.size ?? 9,
+            opacity: 0.95,
+            weight: p.label.weight ?? 500
+          }
+        )
+      ] });
+    };
     const orbitsLayer = useMemo(() => {
       return /* @__PURE__ */ jsxs(Fragment, { children: [
         orbits.map((o) => /* @__PURE__ */ jsx(
@@ -1156,55 +1353,70 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
           "o-" + o.key
         )),
         orbits.map((o) => /* @__PURE__ */ jsx(
-          "text",
+          Label,
           {
             x: cx,
             y: cy - o.radius - 6,
-            textAnchor: "middle",
-            fontSize: 10,
-            fill: o.color,
+            text: o.label,
+            color: o.color,
+            size: 9,
             opacity: 0.85,
-            style: { pointerEvents: "none" },
-            children: o.label
+            weight: 600,
+            uppercase: true
           },
           "ol-" + o.key
         ))
       ] });
-    }, [orbits, cx, cy]);
-    const edgesLayer = useMemo(() => {
-      return /* @__PURE__ */ jsx(Fragment, { children: edges.map((e) => {
-        const a2 = positions.get(String(e.data.fromNid));
-        const b = positions.get(String(e.data.toNid));
-        if (!a2 || !b) return null;
-        return /* @__PURE__ */ jsxs("g", { children: [
-          /* @__PURE__ */ jsx(
-            "line",
-            {
-              x1: a2.x,
-              y1: a2.y,
-              x2: b.x,
-              y2: b.y,
-              stroke: "#fff",
-              strokeOpacity: 0.25,
-              strokeWidth: 1
-            }
-          ),
-          e.data.type && /* @__PURE__ */ jsx(
-            "text",
-            {
-              x: (a2.x + b.x) / 2,
-              y: (a2.y + b.y) / 2 - 4,
-              fontSize: 9,
-              fill: "#cbd5e1",
-              textAnchor: "middle",
-              opacity: 0.7,
-              style: { pointerEvents: "none" },
-              children: String(e.data.type)
-            }
-          )
-        ] }, e.id);
-      }) });
-    }, [edges, positions]);
+    }, [orbits, cx, cy, z]);
+    const edgesLayer = useMemo(() => /* @__PURE__ */ jsx(Fragment, { children: edges.map((e) => {
+      const fromNid = String(e.data.fromNid), toNid = String(e.data.toNid);
+      const a2 = positions.get(fromNid), b = positions.get(toNid);
+      if (!a2 || !b) return null;
+      const hasType = !!e.data.type;
+      const op = edgeOpacity(
+        isEdgeFocused(fromNid, toNid),
+        isEdgeRelevant(fromNid, toNid),
+        hasType ? 0.6 : 0.15,
+        hasType ? 0.95 : 0.7,
+        hasType ? 0.5 : 0.25
+      );
+      return /* @__PURE__ */ jsx("g", { children: /* @__PURE__ */ jsx(
+        Edge,
+        {
+          a: a2,
+          b,
+          color: branchColorByNid.get(toNid) || "#94a3b8",
+          op,
+          sw: hasType ? op > 0.3 ? 2 : 1.5 : op > 0.3 ? 1.5 : 1,
+          dashed: contextNids.has(fromNid) || contextNids.has(toNid),
+          arrow: hasType ? { targetR: planetRByNid.get(toNid) || 8 } : void 0,
+          label: e.data.type && !!neighborSet && isEdgeFocused(fromNid, toNid) ? { text: String(e.data.type), color: "#cbd5e1" } : void 0
+        }
+      ) }, e.id);
+    }) }), [edges, positions, neighborSet, focusNid, z, contextNids, planetRByNid, branchColorByNid]);
+    const contextLayer = useMemo(() => /* @__PURE__ */ jsx(Fragment, { children: contextEdges.map((ce, i) => {
+      const a2 = positions.get(ce.from), b = positions.get(ce.to);
+      if (!a2 || !b) return null;
+      const op = edgeOpacity(
+        isEdgeFocused(ce.from, ce.to),
+        isEdgeRelevant(ce.from, ce.to),
+        ce.count < 2 ? 0 : Math.min(0.12 + ce.strength * 0.15, 0.3),
+        Math.min(0.5 + ce.strength * 0.4, 0.9),
+        0.25
+      );
+      return /* @__PURE__ */ jsx("g", { children: /* @__PURE__ */ jsx(
+        Edge,
+        {
+          a: a2,
+          b,
+          color: ce.relColor,
+          op,
+          sw: 1 + Math.min(ce.count - 1, 2) * 0.4,
+          dashed: contextNids.has(ce.from) || contextNids.has(ce.to),
+          label: !!neighborSet && isEdgeFocused(ce.from, ce.to) ? { text: `${ce.relLabel}${ce.count > 1 ? ` ·${ce.count}` : ""}`, color: ce.relColor, size: 8, weight: 600 } : void 0
+        }
+      ) }, `ctx-${i}`);
+    }) }), [contextEdges, positions, neighborSet, focusNid, z, contextNids]);
     const highlightLines = useMemo(() => {
       if (!selectedLexId) return null;
       const nids = Array.from(highlightedNids);
@@ -1241,18 +1453,27 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
         const isSel = selectedNid === nid;
         const isHl = highlightedNids.has(nid);
         const lexs = lexsByNid.get(nid) || [];
+        const dimmed = isNodeDimmed(nid);
+        const slides = slidesByNodeId.get(n.id) || 0;
+        const baseR = Math.min(8 + slides * 1, 18);
+        const r = isSel ? baseR + 4 : baseR;
+        const moonOrbitR = r + 8;
+        const haloR = r + 8;
+        const tier = String(n.data.tier ?? "");
+        const tierFs = Math.max(7, baseR * 0.85) / z;
         return /* @__PURE__ */ jsxs(
           "g",
           {
             onMouseEnter: () => setHoverIfIdle(nid),
             onMouseLeave: () => setHoverIfIdle(null),
+            style: { opacity: dimmed ? 0.25 : 1, transition: "opacity 150ms" },
             children: [
               (isSel || isHl) && /* @__PURE__ */ jsx(
                 "circle",
                 {
                   cx: p.x,
                   cy: p.y,
-                  r: 22,
+                  r: haloR,
                   fill: isHl ? "#fde68a" : p.color,
                   opacity: 0.3
                 }
@@ -1262,29 +1483,45 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
                 {
                   cx: p.x,
                   cy: p.y,
-                  r: isSel ? 14 : 10,
+                  r,
                   fill: p.color,
                   stroke: isSel || isHl ? "#fff" : "none",
                   strokeWidth: 2,
                   style: { cursor: "pointer" },
-                  onClick: () => tryClick(() => selectByNid(treeId, nid))
+                  onClick: (e) => {
+                    e.stopPropagation();
+                    tryClick(() => selectByNid(treeId, nid));
+                  }
+                }
+              ),
+              tier && /* @__PURE__ */ jsx(
+                "text",
+                {
+                  x: p.x,
+                  y: p.y + tierFs * 0.35,
+                  textAnchor: "middle",
+                  fontSize: tierFs,
+                  fill: "#0a0e1a",
+                  fontWeight: 700,
+                  style: { pointerEvents: "none" },
+                  children: tier
                 }
               ),
               lexs.map((lex, i) => {
                 const ang = i / Math.max(lexs.length, 1) * Math.PI * 2;
-                const mx = p.x + Math.cos(ang) * 22;
-                const my = p.y + Math.sin(ang) * 22;
+                const mx = p.x + Math.cos(ang) * moonOrbitR;
+                const my = p.y + Math.sin(ang) * moonOrbitR;
                 const mc = catColor(String(lex.data.category || ""));
                 const moonSel = selectedLexId === lex.id;
                 const moonRel = relatedLexIds.has(lex.id);
                 return /* @__PURE__ */ jsxs("g", { children: [
-                  moonRel && /* @__PURE__ */ jsx("circle", { cx: mx, cy: my, r: 6, fill: "none", stroke: "#fde68a", strokeOpacity: 0.55, strokeWidth: 1 }),
+                  moonRel && /* @__PURE__ */ jsx("circle", { cx: mx, cy: my, r: 5, fill: "none", stroke: "#fde68a", strokeOpacity: 0.55, strokeWidth: 1 }),
                   /* @__PURE__ */ jsx(
                     "circle",
                     {
                       cx: mx,
                       cy: my,
-                      r: moonSel ? 4.5 : 3,
+                      r: moonSel ? 4 : 2.6,
                       fill: mc,
                       stroke: moonSel ? "#fff" : "none",
                       strokeWidth: 1,
@@ -1307,11 +1544,8 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
           n.id
         );
       }) });
-    }, [nodes, positions, lexsByNid, selectedNid, selectedLexId, relatedLexIds, highlightedNids, treeId]);
+    }, [nodes, positions, lexsByNid, slidesByNodeId, selectedNid, selectedLexId, relatedLexIds, highlightedNids, treeId, neighborSet, z]);
     const labelsLayer = useMemo(() => {
-      const z = Math.max(zoomPct / 100, 1);
-      const fs = 10 / z;
-      const sw = 3 / z;
       return /* @__PURE__ */ jsx(Fragment, { children: nodes.map((n) => {
         const nid = String(n.data.nodeId);
         const p = positions.get(nid);
@@ -1321,25 +1555,23 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
         const isHov = hovered === nid;
         const op = labelOpacity(isSel || isHl, isHov);
         if (op <= 0) return null;
+        const slides = slidesByNodeId.get(n.id) || 0;
+        const baseR = Math.min(8 + slides * 1, 18);
         return /* @__PURE__ */ jsx(
-          "text",
+          Label,
           {
             x: p.x,
-            y: p.y + 30,
-            textAnchor: "middle",
-            fontSize: fs,
-            fill: "#fff",
+            y: p.y + baseR + 14,
+            text: String(n.data.title),
+            color: "#fff",
+            size: 10,
             opacity: op,
-            style: { pointerEvents: "none", paintOrder: "stroke" },
-            stroke: "#0a0e1a",
-            strokeWidth: sw,
-            strokeOpacity: 0.6,
-            children: String(n.data.title)
+            weight: 500
           },
           n.id
         );
       }) });
-    }, [nodes, positions, selectedNid, highlightedNids, hovered, zoomPct]);
+    }, [nodes, positions, slidesByNodeId, selectedNid, highlightedNids, hovered, zoomPct]);
     return /* @__PURE__ */ jsxs("div", { style: { position: "relative", width: "100%", height: "100%" }, children: [
       /* @__PURE__ */ jsx(
         "svg",
@@ -1353,10 +1585,12 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
           onMouseMove,
           onMouseUp: finishDrag,
           onMouseLeave: finishDrag,
+          onClick: onBackgroundClick,
           children: /* @__PURE__ */ jsxs("g", { ref: gRef, children: [
             orbitsLayer,
             /* @__PURE__ */ jsx("circle", { cx, cy, r: 6, fill: "#fde68a" }),
             /* @__PURE__ */ jsx("circle", { cx, cy, r: 14, fill: "#fde68a", opacity: 0.2 }),
+            contextLayer,
             edgesLayer,
             highlightLines,
             planetsLayer,
@@ -1378,6 +1612,76 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
   }
   function CenterPanel() {
     return /* @__PURE__ */ jsx(ui.Page, { children: /* @__PURE__ */ jsx(GraphView, {}) });
+  }
+  const buildTerms = (lexs, formMap) => lexs.map((lex) => ({
+    id: lex.id,
+    matchers: [String(lex.data.term), ...formMap.get(lex.id) || []]
+  }));
+  function SlidesViewer({ node, myLexs }) {
+    const allContent = store.useChildren(node.id, "content");
+    const allForms = store.usePosts("form");
+    const slides = useMemo(() => allContent.filter((c2) => String(c2.data.contentType) !== "quiz"), [allContent]);
+    const formMap = useMemo(() => {
+      const m2 = /* @__PURE__ */ new Map();
+      for (const f of allForms) {
+        const lid = f.parentId;
+        if (!lid) continue;
+        const a2 = m2.get(lid) || [];
+        a2.push(String(f.data.value));
+        m2.set(lid, a2);
+      }
+      return m2;
+    }, [allForms]);
+    const terms = useMemo(() => buildTerms(myLexs, formMap), [myLexs, formMap]);
+    const [idx, setIdx] = useState(0);
+    useEffect(() => {
+      setIdx(0);
+    }, [node.id]);
+    const safeIdx = Math.min(idx, Math.max(0, slides.length - 1));
+    const slide = slides[safeIdx];
+    if (slides.length === 0) {
+      return /* @__PURE__ */ jsx(ui.Text, { size: "xs", muted: true, children: "Brak treści dla tego węzła." });
+    }
+    return /* @__PURE__ */ jsxs(ui.Stack, { gap: "sm", children: [
+      /* @__PURE__ */ jsxs(ui.Row, { justify: "between", children: [
+        /* @__PURE__ */ jsxs(ui.Text, { size: "xs", muted: true, children: [
+          "Slajd ",
+          safeIdx + 1,
+          " / ",
+          slides.length
+        ] }),
+        /* @__PURE__ */ jsxs(ui.Row, { children: [
+          /* @__PURE__ */ jsx(
+            ui.Button,
+            {
+              size: "xs",
+              outline: true,
+              disabled: safeIdx <= 0,
+              onClick: () => setIdx((i) => Math.max(0, i - 1)),
+              children: "‹"
+            }
+          ),
+          /* @__PURE__ */ jsx(
+            ui.Button,
+            {
+              size: "xs",
+              outline: true,
+              disabled: safeIdx >= slides.length - 1,
+              onClick: () => setIdx((i) => Math.min(slides.length - 1, i + 1)),
+              children: "›"
+            }
+          )
+        ] })
+      ] }),
+      /* @__PURE__ */ jsx(
+        ui.Markdown,
+        {
+          text: String((slide == null ? void 0 : slide.data.text) || ""),
+          terms,
+          onTermClick: (id) => selectByLex(id)
+        }
+      )
+    ] });
   }
   function RightPanel() {
     const { treeId, selectedNid, selectedLexId } = useNav();
@@ -1447,7 +1751,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
           ui.ListItem,
           {
             label: /* @__PURE__ */ jsxs(Fragment, { children: [
-              /* @__PURE__ */ jsx("span", { style: { display: "inline-block", width: 8, height: 8, borderRadius: 4, background: catColor(String(r.lex.data.category || "")), marginRight: 6 } }),
+              /* @__PURE__ */ jsx(Dot, { color: catColor(String(r.lex.data.category || "")) }),
               String(r.lex.data.term)
             ] }),
             detail: `${r.count} wspólnych węzłów · ${String(r.lex.data.category || "")}`,
@@ -1477,22 +1781,17 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
     };
     const out = edges.filter((e) => e.data.fromNid === selectedNid);
     const inc = edges.filter((e) => e.data.toNid === selectedNid);
-    const editInStudio = () => {
-      sdk.useHostStore.setState({ activeId: "brainquest-studio" });
-    };
     return /* @__PURE__ */ jsx(ui.Page, { children: /* @__PURE__ */ jsxs(ui.Stack, { children: [
       /* @__PURE__ */ jsx(ui.Heading, { title: String(node.data.title), subtitle: `#${selectedNid}` }),
       /* @__PURE__ */ jsxs(ui.Row, { children: [
         node.data.branch ? /* @__PURE__ */ jsx(ui.Badge, { children: String(node.data.branch) }) : null,
-        node.data.tier ? /* @__PURE__ */ jsxs(ui.Text, { size: "xs", muted: true, children: [
-          "Poziom ",
-          String(node.data.tier)
-        ] }) : null
+        (() => {
+          const lbl = tierLabel(String(node.data.branch || ""), node.data.tier);
+          return lbl ? /* @__PURE__ */ jsx(ui.Text, { size: "xs", muted: true, children: lbl }) : null;
+        })()
       ] }),
-      /* @__PURE__ */ jsx(ui.Row, { children: /* @__PURE__ */ jsxs(ui.Button, { size: "xs", color: "primary", onClick: editInStudio, children: [
-        /* @__PURE__ */ jsx(Edit3, { size: 12 }),
-        " Edytuj w Studio"
-      ] }) }),
+      /* @__PURE__ */ jsx(ui.Divider, {}),
+      /* @__PURE__ */ jsx(SlidesViewer, { node, myLexs }),
       /* @__PURE__ */ jsx(ui.Divider, {}),
       /* @__PURE__ */ jsxs(ui.Cell, { label: true, children: [
         "Terminy (",
@@ -1502,7 +1801,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
       myLexs.length === 0 && /* @__PURE__ */ jsx(ui.Text, { muted: true, size: "xs", children: "brak" }),
       Array.from(lexsByCat.entries()).map(([cat, ls]) => /* @__PURE__ */ jsxs(React.Fragment, { children: [
         /* @__PURE__ */ jsxs(ui.Row, { children: [
-          /* @__PURE__ */ jsx("span", { style: { display: "inline-block", width: 8, height: 8, borderRadius: 4, background: catColor(cat) } }),
+          /* @__PURE__ */ jsx(Dot, { color: catColor(cat) }),
           /* @__PURE__ */ jsxs(ui.Text, { size: "xs", muted: true, children: [
             cat,
             " (",
