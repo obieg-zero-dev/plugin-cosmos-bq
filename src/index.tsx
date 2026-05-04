@@ -3,10 +3,9 @@ import { forceSimulation, forceLink, forceCollide, forceRadial, forceManyBody } 
 
 const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
   const { useMemo, useEffect, useState, useRef } = React
-  const { Share2, GitBranch, Edit3, Maximize2 } = icons
+  const { Share2, GitBranch, Maximize2 } = icons
 
   // Używamy typów BQ: 'tree' (root), 'node' (parent: tree), 'edge' (parent: tree).
-  // Plugin jest tylko PRZEGLĄDARKĄ — edycję robi plugin-brain-quest-studio.
 
   const useNav = sdk.create(() => ({
     treeId: null as string | null,
@@ -628,10 +627,6 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
     const out = edges.filter(e => e.data.fromNid === selectedNid)
     const inc = edges.filter(e => e.data.toNid   === selectedNid)
 
-    const editInStudio = () => {
-      sdk.useHostStore.setState({ activeId: 'brainquest-studio' })
-    }
-
     return (
       <ui.Page>
         <ui.Stack>
@@ -639,12 +634,6 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
           <ui.Row>
             {node.data.branch ? <ui.Badge>{String(node.data.branch)}</ui.Badge> : null}
             {node.data.tier ? <ui.Text size="xs" muted>Poziom {String(node.data.tier)}</ui.Text> : null}
-          </ui.Row>
-
-          <ui.Row>
-            <ui.Button size="xs" color="primary" onClick={editInStudio}>
-              <Edit3 size={12} /> Edytuj w Studio
-            </ui.Button>
           </ui.Row>
 
           <ui.Divider />

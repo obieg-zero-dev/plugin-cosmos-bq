@@ -813,7 +813,7 @@ function forceRadial(radius, x2, y2) {
 }
 const plugin = ({ React, ui, store, sdk, icons }) => {
   const { useMemo, useEffect, useState, useRef } = React;
-  const { Share2, GitBranch, Edit3, Maximize2 } = icons;
+  const { Share2, GitBranch, Maximize2 } = icons;
   const useNav = sdk.create(() => ({
     treeId: null,
     selectedNid: null,
@@ -1477,9 +1477,6 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
     };
     const out = edges.filter((e) => e.data.fromNid === selectedNid);
     const inc = edges.filter((e) => e.data.toNid === selectedNid);
-    const editInStudio = () => {
-      sdk.useHostStore.setState({ activeId: "brainquest-studio" });
-    };
     return /* @__PURE__ */ jsx(ui.Page, { children: /* @__PURE__ */ jsxs(ui.Stack, { children: [
       /* @__PURE__ */ jsx(ui.Heading, { title: String(node.data.title), subtitle: `#${selectedNid}` }),
       /* @__PURE__ */ jsxs(ui.Row, { children: [
@@ -1489,10 +1486,6 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
           String(node.data.tier)
         ] }) : null
       ] }),
-      /* @__PURE__ */ jsx(ui.Row, { children: /* @__PURE__ */ jsxs(ui.Button, { size: "xs", color: "primary", onClick: editInStudio, children: [
-        /* @__PURE__ */ jsx(Edit3, { size: 12 }),
-        " Edytuj w Studio"
-      ] }) }),
       /* @__PURE__ */ jsx(ui.Divider, {}),
       /* @__PURE__ */ jsxs(ui.Cell, { label: true, children: [
         "Terminy (",
