@@ -5,12 +5,8 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
   const { useMemo, useEffect, useState, useRef } = React
   const { Share2, GitBranch, Maximize2 } = icons
 
-  // Sentinel dla węzłów bez gałęzi (klucz Map). Map nie wspiera null jako klucz w iteracji semantycznie.
   const NO_BRANCH = '_none'
-  // Konwencja danych: gałęzie zaczynające się na ten prefix to "konteksty" (Historia Polski, Biblia itp.)
   const CONTEXT_BRANCH_PREFIX = 'kontekst'
-
-  // Rozmiar planety zależny od ilości slajdów (8-18px). Liczba slajdów = wizualna miara "ile treści".
   const planetRadius = (slides: number) => Math.min(8 + slides, 18)
 
   const useNav = sdk.create(() => ({
@@ -25,31 +21,22 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
     useNav.setState({ selectedNid: nid, selectedLexId: null })
     if (node) sdk.shared.setState({ bq: { treeId, nodeId: nid, postId: node.id } })
   }
-
-  const selectByLex = (lexId: string) => {
+  const selectByLex = (lexId: string) =>
     useNav.setState({ selectedLexId: lexId, selectedNid: null })
-  }
 
-  // Kolory kategorii leksykonu (księżyce)
   const CAT_COLORS: Record<string, string> = {
-    motyw: '#f59e0b',
-    topos: '#ef4444',
-    gatunek: '#4a90e2',
-    srodek: '#9b59b6',
-    srodek_stylistyczny: '#9b59b6',
-    postac: '#22c55e',
-    pojecie: '#fde68a',
-    'pojęcie': '#fde68a',
+    motyw: '#f59e0b', topos: '#ef4444', gatunek: '#4a90e2',
+    srodek: '#9b59b6', srodek_stylistyczny: '#9b59b6',
+    postac: '#22c55e', pojecie: '#fde68a', 'pojęcie': '#fde68a',
   }
-  const catColor = (c: string) => CAT_COLORS[c] || '#94a3b8'
-
-  // Paleta orbit / nagłówków gałęzi
   const COLOR_MAP: Record<string, string> = {
-    primary:  '#4a90e2', secondary: '#9b59b6', accent: '#e91e63',
-    info:     '#00bcd4', success:   '#22c55e', warning: '#f59e0b',
-    error:    '#ef4444', neutral:   '#94a3b8',
+    primary: '#4a90e2', secondary: '#9b59b6', accent: '#e91e63',
+    info: '#00bcd4', success: '#22c55e', warning: '#f59e0b',
+    error: '#ef4444', neutral: '#94a3b8',
   }
   const PALETTE = ['#4a90e2', '#e91e63', '#22c55e', '#f59e0b', '#9b59b6', '#00bcd4', '#ef4444', '#94a3b8']
+  const catColor = (c: string) => CAT_COLORS[c] || '#94a3b8'
+  const branchOf = (n: PostRecord) => String(n.data.branch || '') || NO_BRANCH
 
   type BranchInfo = { key: string; label: string; color: string; def?: PostRecord }
   const usedBranchInfos = (nodes: PostRecord[], branches: PostRecord[]): BranchInfo[] => {
@@ -58,33 +45,25 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
     const seen = new Set<string>()
     for (const b of branches) {
       const k = String(b.data.key)
-      if (!seen.has(k) && nodes.some(n => String(n.data.branch || '') === k)) {
-        used.push(k); seen.add(k)
-      }
+      if (!seen.has(k) && nodes.some(n => branchOf(n) === k)) { used.push(k); seen.add(k) }
     }
-    if (nodes.some(n => !String(n.data.branch || ''))) used.push(NO_BRANCH)
+    if (nodes.some(n => branchOf(n) === NO_BRANCH)) used.push(NO_BRANCH)
     return used.map((k, i) => {
       const def = byKey.get(k)
-      const colorKey = def ? String(def.data.color || '') : ''
       return {
         key: k,
         label: def ? String(def.data.label) : 'bez gałęzi',
-        color: COLOR_MAP[colorKey] || PALETTE[i % PALETTE.length],
+        color: COLOR_MAP[String(def?.data.color || '')] || PALETTE[i % PALETTE.length],
         def,
       }
     })
   }
-  const branchOf = (n: PostRecord) => String(n.data.branch || '') || NO_BRANCH
 
   const Dot = ({ color }: { color: string }) => (
     <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 4, background: color, marginRight: 6 }} />
   )
 
-  // Tier ma różną semantykę zależnie od gałęzi:
-  //   epoki    → kolejność chronologiczna ("epoka 5")
-  //   lektury  → poziom trudności ("poziom 2")
-  //   kontekst → bez znaczenia (ukryj)
-  //   inne     → fallback "tier N"
+  // Tier ma różną semantykę per gałąź — epoki=kolejność chronologiczna, lektury=trudność.
   const tierLabel = (branchKey: string, tier: unknown): string => {
     const n = String(tier ?? '').trim()
     if (!n || n === '0') return ''
@@ -95,7 +74,6 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
     return `tier ${n}`
   }
 
-  // ── Lewy panel: drzewko węzłów z wcięciami po gałęzi/tier ─────────
   function LeftPanel() {
     const trees = store.usePosts('tree') as PostRecord[]
     const { treeId, selectedNid } = useNav()
@@ -151,8 +129,7 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
             {groups.map(g => (
               <React.Fragment key={g.key}>
                 <ui.Cell label>
-                  <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 4, background: g.color, marginRight: 6 }} />
-                  {g.label}
+                  <Dot color={g.color} />{g.label}
                 </ui.Cell>
                 {g.nodes.map(n => {
                   const nid = String(n.data.nodeId)
@@ -173,7 +150,6 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
     )
   }
 
-  // ── Widok GRAFU: kosmiczny model — każda gałąź = własna orbita ────
   function GraphView() {
     const { treeId, selectedNid, selectedLexId } = useNav()
     const nodes    = store.useChildren(treeId || '', 'node') as PostRecord[]
@@ -184,7 +160,6 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
     const allLexNodes = store.usePosts('lexNode') as PostRecord[]
     const allContent = store.usePosts('content') as PostRecord[]
 
-    // Liczba slajdów per węzeł (bez quizów — te są bonusem)
     const slidesByNodeId = useMemo(() => {
       const m = new Map<string, number>()
       for (const c of allContent) {
@@ -211,8 +186,6 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
       return m
     }, [nodes, slidesByNodeId])
 
-    // Kolor węzła = kolor jego orbity (te same wartości co usedBranchInfos zwraca dla orbit).
-    // Edges wychodzące z węzła dziedziczą ten kolor — spójny wzorzec wizualny per gałąź.
     const branchColorByNid = useMemo(() => {
       const orbitColors = new Map(usedBranchInfos(nodes, branches).map(b => [b.key, b.color]))
       const m = new Map<string, string>()
@@ -238,7 +211,6 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
       return { lexsByNid, nidsByLex }
     }, [lexicons, allLexNodes])
 
-    // Krawędzie kontekstowe — agregacja par lex (relation + count) → semantyczne powiązania węzłów
     const contextEdges = useMemo(() => {
       const map = new Map<string, { from: string; to: string; rels: Map<string, number> }>()
       for (const lex of lexicons) {
@@ -273,7 +245,6 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
 
     const highlightedNids = selectedLexId ? (nidsByLex.get(selectedLexId) || new Set<string>()) : new Set<string>()
 
-    // Powiązane terminy: inne lex współwystępujące w tych samych węzłach
     const relatedLexIds = useMemo(() => {
       if (!selectedLexId) return new Set<string>()
       const myNids = nidsByLex.get(selectedLexId) || new Set<string>()
@@ -363,7 +334,6 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
     />
   }
 
-  // ── SVG: pan/zoom + ukrywanie etykiet + focus mode ────────────────
   function CosmosSvg(props: {
     cx: number; cy: number
     orbits: Array<{ key: string; label: string; color: string; radius: number }>
@@ -464,13 +434,11 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
       setHovered(prev => (prev === nid ? prev : nid))
     }
 
-    // Tap-na-tło = deselect (mobile-friendly). Tylko jeśli nie był drag.
     const onBackgroundClick = () => {
       if (wasMovedRef.current) { wasMovedRef.current = false; return }
       useNav.setState({ selectedNid: null, selectedLexId: null })
     }
 
-    // Focus mode: WYŁĄCZNIE selectedNid (klik/tap, działa na mobile). Hover NIE używany do focus.
     const focusNid: string | null = selectedNid
     const neighborSet = useMemo(() => {
       if (!focusNid) return null
@@ -497,8 +465,6 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
     const labelOpacity = (sel: boolean, hov: boolean) =>
       sel ? 1 : hov ? 0.95 : showAllLabels ? 0.8 : 0
 
-    // Spójny renderer labels — anti-scale przez podział size/strokeWidth przez zoom.
-    // Outline ciemny ale CIENKI (nie więcej niż 18% rozmiaru fontu) — żeby tekst nie tonął w masie.
     const z = Math.max(zoomPct / 100, 0.5)
     const Label = (p: {
       x: number; y: number; text: string; color: string;
@@ -525,13 +491,11 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
       )
     }
 
-    // Helper: opacity per stan focus mode. Eliminuje 4-poziomowy ternary z 2 warstw.
     const edgeOpacity = (
       focused: boolean, relevant: boolean,
       idle: number, focusedOp: number, relevantOp: number, dim = 0.02
     ): number => !neighborSet ? idle : focused ? focusedOp : relevant ? relevantOp : dim
 
-    // Helper: geometria strzałki (trójkąt path + offset linii o promień planety target).
     const arrowGeom = (a: { x: number; y: number }, b: { x: number; y: number }, targetR: number) => {
       const dx = b.x - a.x, dy = b.y - a.y
       const d = Math.hypot(dx, dy) || 1
@@ -551,7 +515,6 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
       }
     }
 
-    // Wspólny komponent edge (struktural + kontekstowa). Zwraca line + opcjonalnie strzałkę + etykietę.
     // Strzałka jako <path> (NIE marker) — żeby dziedziczyć opacity linii.
     const Edge = (p: {
       a: { x: number; y: number }; b: { x: number; y: number }
@@ -599,7 +562,6 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
       )
     }, [orbits, cx, cy, z])
 
-    // Krawędzie strukturalne (typed = progression itp. mocne + strzałka, bez type = słabe poboczne)
     const edgesLayer = useMemo(() => (
       <>
         {edges.map(e => {
@@ -634,7 +596,6 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
       </>
     ), [edges, positions, neighborSet, focusNid, z, contextNids, planetRByNid, branchColorByNid])
 
-    // Krawędzie kontekstowe (lex co-occurrence) — kolor relacji, count<2 ukryte idle
     const contextLayer = useMemo(() => (
       <>
         {contextEdges.map((ce, i) => {
@@ -691,14 +652,12 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
           const isHl = highlightedNids.has(nid)
           const lexs = lexsByNid.get(nid) || []
           const dimmed = isNodeDimmed(nid)
-          // Rozmiar planety ∝ liczba slajdów: 0=8px, 1-3=10-12, 4-9=13-16, 10+=18 max
           const slides = slidesByNodeId.get(n.id) || 0
           const baseR = Math.min(8 + slides * 1.0, 18)
           const r = isSel ? baseR + 4 : baseR
           const moonOrbitR = r + 8
           const haloR = r + 8
           const tier = String(n.data.tier ?? '')
-          // Numerek tier: jasny na ciemnej planecie, anti-scale przez Label (no outline bo na planecie)
           const tierFs = Math.max(7, baseR * 0.85) / z
           return (
             <g key={n.id}
@@ -810,15 +769,12 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
     return <ui.Page><GraphView /></ui.Page>
   }
 
-  // ── Prawy panel: szczegóły wybranego węzła LUB terminu ────────────
-  // Helper: lista terminów (id + matchers nazwa + odmiany) dla ui.Markdown
   const buildTerms = (lexs: PostRecord[], formMap: Map<string, string[]>) =>
     lexs.map(lex => ({
       id: lex.id,
       matchers: [String(lex.data.term), ...(formMap.get(lex.id) || [])],
     }))
 
-  // Slajdy węzła z markdownem + podświetlonymi terminami + nawigacja
   function SlidesViewer({ node, myLexs }: { node: PostRecord; myLexs: PostRecord[] }) {
     const allContent = store.useChildren(node.id, 'content') as PostRecord[]
     const allForms = store.usePosts('form') as PostRecord[]
@@ -872,7 +828,6 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
       return m
     }, [nodes])
 
-    // Widok: TERMIN
     if (selectedLexId) {
       const lex = lexById.get(selectedLexId)
       if (!lex) return <ui.Placeholder text="Termin nie istnieje" />
@@ -918,12 +873,7 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
             {related.length === 0 && <ui.Text muted size="xs">brak współwystępujących</ui.Text>}
             {related.map(r => (
               <ui.ListItem key={r.lex.id}
-                label={
-                  <>
-                    <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 4, background: catColor(String(r.lex.data.category || '')), marginRight: 6 }} />
-                    {String(r.lex.data.term)}
-                  </>
-                }
+                label={<><Dot color={catColor(String(r.lex.data.category || ''))} />{String(r.lex.data.term)}</>}
                 detail={`${r.count} wspólnych węzłów · ${String(r.lex.data.category || '')}`}
                 onClick={() => selectByLex(r.lex.id)}
               />
@@ -933,7 +883,6 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
       )
     }
 
-    // Widok: WĘZEŁ
     const node = selectedNid ? nodeByNid.get(selectedNid) : undefined
     if (!node) return <ui.Placeholder text="Wybierz węzeł lub termin" />
 
@@ -977,7 +926,7 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
           {Array.from(lexsByCat.entries()).map(([cat, ls]) => (
             <React.Fragment key={cat}>
               <ui.Row>
-                <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 4, background: catColor(cat) }} />
+                <Dot color={catColor(cat)} />
                 <ui.Text size="xs" muted>{cat} ({ls.length})</ui.Text>
               </ui.Row>
               {ls.map(l => (

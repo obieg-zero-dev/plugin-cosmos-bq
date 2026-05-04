@@ -827,9 +827,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
     useNav.setState({ selectedNid: nid, selectedLexId: null });
     if (node) sdk.shared.setState({ bq: { treeId, nodeId: nid, postId: node.id } });
   };
-  const selectByLex = (lexId) => {
-    useNav.setState({ selectedLexId: lexId, selectedNid: null });
-  };
+  const selectByLex = (lexId) => useNav.setState({ selectedLexId: lexId, selectedNid: null });
   const CAT_COLORS = {
     motyw: "#f59e0b",
     topos: "#ef4444",
@@ -840,7 +838,6 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
     pojecie: "#fde68a",
     "pojęcie": "#fde68a"
   };
-  const catColor = (c2) => CAT_COLORS[c2] || "#94a3b8";
   const COLOR_MAP = {
     primary: "#4a90e2",
     secondary: "#9b59b6",
@@ -852,30 +849,31 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
     neutral: "#94a3b8"
   };
   const PALETTE = ["#4a90e2", "#e91e63", "#22c55e", "#f59e0b", "#9b59b6", "#00bcd4", "#ef4444", "#94a3b8"];
+  const catColor = (c2) => CAT_COLORS[c2] || "#94a3b8";
+  const branchOf = (n) => String(n.data.branch || "") || NO_BRANCH;
   const usedBranchInfos = (nodes, branches) => {
     const byKey = new Map(branches.map((b) => [String(b.data.key), b]));
     const used = [];
     const seen = /* @__PURE__ */ new Set();
     for (const b of branches) {
       const k = String(b.data.key);
-      if (!seen.has(k) && nodes.some((n) => String(n.data.branch || "") === k)) {
+      if (!seen.has(k) && nodes.some((n) => branchOf(n) === k)) {
         used.push(k);
         seen.add(k);
       }
     }
-    if (nodes.some((n) => !String(n.data.branch || ""))) used.push(NO_BRANCH);
+    if (nodes.some((n) => branchOf(n) === NO_BRANCH)) used.push(NO_BRANCH);
     return used.map((k, i) => {
       const def = byKey.get(k);
-      const colorKey = def ? String(def.data.color || "") : "";
       return {
         key: k,
         label: def ? String(def.data.label) : "bez gałęzi",
-        color: COLOR_MAP[colorKey] || PALETTE[i % PALETTE.length],
+        color: COLOR_MAP[String((def == null ? void 0 : def.data.color) || "")] || PALETTE[i % PALETTE.length],
         def
       };
     });
   };
-  const branchOf = (n) => String(n.data.branch || "") || NO_BRANCH;
+  const Dot = ({ color }) => /* @__PURE__ */ jsx("span", { style: { display: "inline-block", width: 8, height: 8, borderRadius: 4, background: color, marginRight: 6 } });
   const tierLabel = (branchKey, tier) => {
     const n = String(tier ?? "").trim();
     if (!n || n === "0") return "";
@@ -941,7 +939,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
           ] }),
           groups.map((g) => /* @__PURE__ */ jsxs(React.Fragment, { children: [
             /* @__PURE__ */ jsxs(ui.Cell, { label: true, children: [
-              /* @__PURE__ */ jsx("span", { style: { display: "inline-block", width: 8, height: 8, borderRadius: 4, background: g.color, marginRight: 6 } }),
+              /* @__PURE__ */ jsx(Dot, { color: g.color }),
               g.label
             ] }),
             g.nodes.map((n) => {
@@ -1753,7 +1751,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
           ui.ListItem,
           {
             label: /* @__PURE__ */ jsxs(Fragment, { children: [
-              /* @__PURE__ */ jsx("span", { style: { display: "inline-block", width: 8, height: 8, borderRadius: 4, background: catColor(String(r.lex.data.category || "")), marginRight: 6 } }),
+              /* @__PURE__ */ jsx(Dot, { color: catColor(String(r.lex.data.category || "")) }),
               String(r.lex.data.term)
             ] }),
             detail: `${r.count} wspólnych węzłów · ${String(r.lex.data.category || "")}`,
@@ -1803,7 +1801,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
       myLexs.length === 0 && /* @__PURE__ */ jsx(ui.Text, { muted: true, size: "xs", children: "brak" }),
       Array.from(lexsByCat.entries()).map(([cat, ls]) => /* @__PURE__ */ jsxs(React.Fragment, { children: [
         /* @__PURE__ */ jsxs(ui.Row, { children: [
-          /* @__PURE__ */ jsx("span", { style: { display: "inline-block", width: 8, height: 8, borderRadius: 4, background: catColor(cat) } }),
+          /* @__PURE__ */ jsx(Dot, { color: catColor(cat) }),
           /* @__PURE__ */ jsxs(ui.Text, { size: "xs", muted: true, children: [
             cat,
             " (",
