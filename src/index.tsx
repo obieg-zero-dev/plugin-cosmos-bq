@@ -769,25 +769,13 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
     return <ui.Page><GraphView /></ui.Page>
   }
 
-  const buildTerms = (lexs: PostRecord[], formMap: Map<string, string[]>) =>
-    lexs.map(lex => ({
-      id: lex.id,
-      matchers: [String(lex.data.term), ...(formMap.get(lex.id) || [])],
-    }))
+  const buildTerms = (lexs: PostRecord[]) =>
+    lexs.map(lex => ({ id: lex.id, term: String(lex.data.term) }))
 
   function SlidesViewer({ node, myLexs }: { node: PostRecord; myLexs: PostRecord[] }) {
     const allContent = store.useChildren(node.id, 'content') as PostRecord[]
-    const allForms = store.usePosts('form') as PostRecord[]
     const slides = useMemo(() => allContent.filter(c => String(c.data.contentType) !== 'quiz'), [allContent])
-    const formMap = useMemo(() => {
-      const m = new Map<string, string[]>()
-      for (const f of allForms) {
-        const lid = f.parentId; if (!lid) continue
-        const a = m.get(lid) || []; a.push(String(f.data.value)); m.set(lid, a)
-      }
-      return m
-    }, [allForms])
-    const terms = useMemo(() => buildTerms(myLexs, formMap), [myLexs, formMap])
+    const terms = useMemo(() => buildTerms(myLexs), [myLexs])
 
     const [idx, setIdx] = useState(0)
     useEffect(() => { setIdx(0) }, [node.id])

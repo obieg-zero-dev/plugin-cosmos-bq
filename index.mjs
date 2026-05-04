@@ -1613,26 +1613,11 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
   function CenterPanel() {
     return /* @__PURE__ */ jsx(ui.Page, { children: /* @__PURE__ */ jsx(GraphView, {}) });
   }
-  const buildTerms = (lexs, formMap) => lexs.map((lex) => ({
-    id: lex.id,
-    matchers: [String(lex.data.term), ...formMap.get(lex.id) || []]
-  }));
+  const buildTerms = (lexs) => lexs.map((lex) => ({ id: lex.id, term: String(lex.data.term) }));
   function SlidesViewer({ node, myLexs }) {
     const allContent = store.useChildren(node.id, "content");
-    const allForms = store.usePosts("form");
     const slides = useMemo(() => allContent.filter((c2) => String(c2.data.contentType) !== "quiz"), [allContent]);
-    const formMap = useMemo(() => {
-      const m2 = /* @__PURE__ */ new Map();
-      for (const f of allForms) {
-        const lid = f.parentId;
-        if (!lid) continue;
-        const a2 = m2.get(lid) || [];
-        a2.push(String(f.data.value));
-        m2.set(lid, a2);
-      }
-      return m2;
-    }, [allForms]);
-    const terms = useMemo(() => buildTerms(myLexs, formMap), [myLexs, formMap]);
+    const terms = useMemo(() => buildTerms(myLexs), [myLexs]);
     const [idx, setIdx] = useState(0);
     useEffect(() => {
       setIdx(0);
