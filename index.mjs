@@ -1334,6 +1334,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
         const idleOp = ce.count < 2 ? 0 : Math.min(0.12 + ce.strength * 0.15, 0.3);
         const op = !neighborSet ? idleOp : isEdgeFocused(ce.from, ce.to) ? Math.min(0.5 + ce.strength * 0.4, 0.9) : isEdgeRelevant(ce.from, ce.to) ? 0.25 : 0.02;
         const showLabel = neighborSet && isEdgeFocused(ce.from, ce.to);
+        const dashed = contextNids.has(ce.from) || contextNids.has(ce.to);
         return /* @__PURE__ */ jsxs("g", { children: [
           /* @__PURE__ */ jsx(
             "line",
@@ -1345,7 +1346,8 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
               stroke: ce.relColor,
               strokeOpacity: op,
               strokeWidth: w,
-              strokeLinecap: "round"
+              strokeLinecap: "round",
+              strokeDasharray: dashed ? "4 3" : void 0
             }
           ),
           showLabel && /* @__PURE__ */ jsx(
@@ -1362,7 +1364,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
           )
         ] }, `ctx-${i}`);
       }) });
-    }, [contextEdges, positions, neighborSet, focusNid, z]);
+    }, [contextEdges, positions, neighborSet, focusNid, z, contextNids]);
     const highlightLines = useMemo(() => {
       if (!selectedLexId) return null;
       const nids = Array.from(highlightedNids);

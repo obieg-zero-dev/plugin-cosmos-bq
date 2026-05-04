@@ -545,11 +545,14 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
             : isEdgeRelevant(ce.from, ce.to) ? 0.25
             : 0.02
           const showLabel = neighborSet && isEdgeFocused(ce.from, ce.to)
+          // Spójna reguła: krawędź dotykająca węzła kontekstowego → przerywana
+          const dashed = contextNids.has(ce.from) || contextNids.has(ce.to)
           return (
             <g key={`ctx-${i}`}>
               <line x1={a.x} y1={a.y} x2={b.x} y2={b.y}
                 stroke={ce.relColor} strokeOpacity={op}
-                strokeWidth={w} strokeLinecap="round" />
+                strokeWidth={w} strokeLinecap="round"
+                strokeDasharray={dashed ? '4 3' : undefined} />
               {showLabel && (
                 <Label x={(a.x + b.x) / 2} y={(a.y + b.y) / 2 - 4}
                   text={`${ce.relLabel}${ce.count > 1 ? ` ·${ce.count}` : ''}`}
@@ -560,7 +563,7 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
         })}
       </>
       )
-    }, [contextEdges, positions, neighborSet, focusNid, z])
+    }, [contextEdges, positions, neighborSet, focusNid, z, contextNids])
 
     const highlightLines = useMemo(() => {
       if (!selectedLexId) return null
