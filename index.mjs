@@ -3302,24 +3302,43 @@ function d3zoom() {
   };
   return zoom;
 }
-const DAISY_TOKENS = /* @__PURE__ */ new Set(["primary", "secondary", "accent", "info", "success", "warning", "error", "neutral", "base-100", "base-200", "base-300", "base-content"]);
-const tok = (name) => {
-  if (!name) return "var(--color-neutral)";
-  if (name.startsWith("#") || name.startsWith("var(") || name.startsWith("rgb")) return name;
-  if (DAISY_TOKENS.has(name)) return `var(--color-${name})`;
-  return "var(--color-neutral)";
+const NEON = {
+  primary: "#5eb3ff",
+  secondary: "#c084fc",
+  accent: "#f472b6",
+  info: "#22d3ee",
+  success: "#4ade80",
+  warning: "#fbbf24",
+  error: "#f87171",
+  neutral: "#94a3b8"
 };
-const CAT_TOKEN = {
-  motyw: "warning",
-  topos: "error",
-  gatunek: "info",
-  srodek: "secondary",
-  srodek_stylistyczny: "secondary",
-  postac: "success",
-  pojecie: "accent",
-  "pojęcie": "accent"
+const PALETTE = ["#5eb3ff", "#c084fc", "#f472b6", "#22d3ee", "#4ade80", "#fbbf24", "#f87171", "#a78bfa"];
+const colorOf = (key, fallbackIdx = 0) => {
+  if (!key) return PALETTE[fallbackIdx % PALETTE.length];
+  if (key.startsWith("#")) return key;
+  return NEON[key] || PALETTE[fallbackIdx % PALETTE.length];
 };
-const moonColor = (cat) => tok(CAT_TOKEN[cat || ""] || "neutral");
+const CAT_COLOR = {
+  motyw: "#fbbf24",
+  topos: "#f87171",
+  gatunek: "#5eb3ff",
+  srodek: "#c084fc",
+  srodek_stylistyczny: "#c084fc",
+  postac: "#4ade80",
+  pojecie: "#f472b6",
+  "pojęcie": "#f472b6"
+};
+const moonColor = (cat) => CAT_COLOR[cat || ""] || "#94a3b8";
+const C = {
+  text: "#e2e8f0",
+  muted: "#64748b",
+  edge: "#64748b",
+  warn: "#fbbf24",
+  primary: "#5eb3ff",
+  sun: "#fbbf24",
+  bg0: "#050813",
+  bg1: "#0f1729"
+};
 const FALLBACK_REL = { key: "inne", label: "inne", color: "neutral" };
 function Cosmos(props) {
   const {
@@ -3434,7 +3453,7 @@ function Cosmos(props) {
       return {
         key,
         label: (def == null ? void 0 : def.label) || (key === "_none" ? "bez gałęzi" : key),
-        color: tok((def == null ? void 0 : def.color) || "neutral"),
+        color: colorOf(def == null ? void 0 : def.color, i),
         radius: r
       };
     });
@@ -3448,7 +3467,7 @@ function Cosmos(props) {
       const branchKey = n.branch || "_none";
       const orbit = orbitByKey.get(branchKey);
       const orbitR = (orbit == null ? void 0 : orbit.radius) ?? 110;
-      const orbitColor = (orbit == null ? void 0 : orbit.color) ?? tok("neutral");
+      const orbitColor = (orbit == null ? void 0 : orbit.color) ?? "#94a3b8";
       const existing = map.get(n.nid);
       if (existing) {
         existing.tier = n.tier || 0;
@@ -3498,6 +3517,7 @@ function Cosmos(props) {
   const simRef = useRef(null);
   const zoomRef = useRef(null);
   const [zoomPct, setZoomPct] = useState(100);
+  const [hovered, setHovered] = useState(null);
   const onTick = useCallback(() => {
     const g = gRef.current;
     if (!g) return;
@@ -3509,21 +3529,23 @@ function Cosmos(props) {
       if (!n) return;
       el.setAttribute("transform", `translate(${n.x},${n.y})`);
     });
-    const edgeEls = g.querySelectorAll("path[data-from]");
-    edgeEls.forEach((el) => {
+    const lineEls = g.querySelectorAll("line[data-from]");
+    lineEls.forEach((el) => {
       const a2 = simNodesRef.current.get(el.dataset.from || "");
       const b = simNodesRef.current.get(el.dataset.to || "");
       if (!a2 || !b) return;
-      const mx = (a2.x + b.x) / 2 + (b.y - a2.y) * 0.12;
-      const my = (a2.y + b.y) / 2 - (b.x - a2.x) * 0.12;
-      el.setAttribute("d", `M${a2.x},${a2.y} Q${mx},${my} ${b.x},${b.y}`);
+      el.setAttribute("x1", String(a2.x));
+      el.setAttribute("y1", String(a2.y));
+      el.setAttribute("x2", String(b.x));
+      el.setAttribute("y2", String(b.y));
     });
-    const ctxLabels = g.querySelectorAll("g[data-ctx]");
+    const ctxLabels = g.querySelectorAll("text[data-ctx]");
     ctxLabels.forEach((el) => {
       const a2 = simNodesRef.current.get(el.dataset.from || "");
       const b = simNodesRef.current.get(el.dataset.to || "");
       if (!a2 || !b) return;
-      el.setAttribute("transform", `translate(${(a2.x + b.x) / 2},${(a2.y + b.y) / 2})`);
+      el.setAttribute("x", String((a2.x + b.x) / 2));
+      el.setAttribute("y", String((a2.y + b.y) / 2 - 4));
     });
     const hlEls = g.querySelectorAll("line[data-hl-from]");
     hlEls.forEach((el) => {
@@ -3544,10 +3566,10 @@ function Cosmos(props) {
       root2.fx = 0;
       root2.fy = 0;
     }
-    const sim = forceSimulation(simNodes).force("radial", forceRadial((d) => d.orbitR, 0, 0).strength(0.9)).force("collide", forceCollide((d) => bigBranchSet.has(d.branch) ? 32 : 26)).force("link-struct", forceLink(structLinks).id((d) => d.nid).distance(80).strength(0.18)).force("link-context", forceLink(contextLinks).id((d) => d.nid).distance((d) => Math.max(60, 130 - (d.count || 1) * 8)).strength((d) => Math.min(0.08 + (d.count || 1) * 0.06, 0.4))).force("charge", forceManyBody().strength(-22));
+    const sim = forceSimulation(simNodes).force("radial", forceRadial((d) => d.orbitR, 0, 0).strength(0.95)).force("collide", forceCollide((d) => bigBranchSet.has(d.branch) ? 28 : 22)).force("link-struct", forceLink(structLinks).id((d) => d.nid).distance(80).strength(0.15)).force("link-context", forceLink(contextLinks).id((d) => d.nid).distance((d) => Math.max(60, 130 - (d.count || 1) * 8)).strength((d) => Math.min(0.05 + (d.count || 1) * 0.04, 0.3))).force("charge", forceManyBody().strength(-18));
     if (layout === "orbital-static") {
       sim.alpha(1).alphaDecay(0.05).alphaMin(0.01).stop();
-      for (let i = 0; i < 150; i++) sim.tick();
+      for (let i = 0; i < 180; i++) sim.tick();
       onTick();
     } else {
       sim.alphaDecay(0.05).alphaMin(0.01).on("tick", onTick);
@@ -3586,7 +3608,7 @@ function Cosmos(props) {
     });
     svgSel.call(z);
     const rect = svgRef.current.getBoundingClientRect();
-    svgSel.call(z.transform, identity.translate(rect.width / 2, rect.height / 2).scale(0.8));
+    svgSel.call(z.transform, identity.translate(rect.width / 2, rect.height / 2).scale(0.85));
     zoomRef.current = z;
     return () => {
       svgSel.on(".zoom", null);
@@ -3598,7 +3620,7 @@ function Cosmos(props) {
     if (!node) return;
     const svgSel = select(svgRef.current);
     const rect = svgRef.current.getBoundingClientRect();
-    svgSel.transition().duration(600).call(zoomRef.current.transform, identity.translate(rect.width / 2 - node.x * 0.9, rect.height / 2 - node.y * 0.9).scale(0.9));
+    svgSel.transition().duration(600).call(zoomRef.current.transform, identity.translate(rect.width / 2 - node.x * 0.95, rect.height / 2 - node.y * 0.95).scale(0.95));
   }, [selectedId, simNodes]);
   useEffect(() => {
     if (layout !== "orbital-live" || !gRef.current) return;
@@ -3630,20 +3652,8 @@ function Cosmos(props) {
     if (!svgRef.current || !zoomRef.current) return;
     const svgSel = select(svgRef.current);
     const rect = svgRef.current.getBoundingClientRect();
-    svgSel.transition().duration(400).call(zoomRef.current.transform, identity.translate(rect.width / 2, rect.height / 2).scale(0.8));
+    svgSel.transition().duration(400).call(zoomRef.current.transform, identity.translate(rect.width / 2, rect.height / 2).scale(0.85));
   };
-  const C = {
-    bg: "var(--color-base-100)",
-    surface: "var(--color-base-200)",
-    edge: "var(--color-base-content)",
-    warn: "var(--color-warning)",
-    primary: "var(--color-primary)",
-    text: "var(--color-base-content)",
-    muted: "var(--color-base-300)",
-    sun: "var(--color-warning)"
-  };
-  const showAllLabels = zoomPct >= 150;
-  const showCtxLabels = contextEdgeLabels === "always" || contextEdgeLabels === "auto-zoom" && zoomPct >= 150;
   const moonsMode = (moons == null ? void 0 : moons.mode) ?? "never";
   const lexsByNid = (moons == null ? void 0 : moons.lexsByNid) ?? /* @__PURE__ */ new Map();
   const selectedLexId = (moons == null ? void 0 : moons.selectedLexId) ?? null;
@@ -3655,7 +3665,14 @@ function Cosmos(props) {
     if (!gating) return true;
     return discovered.has(nid);
   };
+  const showAllLabels = zoomPct >= 150;
+  const showCtxLabels = contextEdgeLabels === "always" || contextEdgeLabels === "auto-zoom" && zoomPct >= 150;
   const posOf = (nid) => simNodesRef.current.get(nid) || { x: 0, y: 0 };
+  const hoveredNeighbors = useMemo(() => {
+    if (!hovered) return null;
+    const ns = adj.get(hovered);
+    return ns ? /* @__PURE__ */ new Set([hovered, ...ns]) : /* @__PURE__ */ new Set([hovered]);
+  }, [hovered, adj]);
   if (!nodes.length) return /* @__PURE__ */ jsx(Fragment, { children: placeholder ?? null });
   const highlightPairs = [];
   if (selectedLexId && highlightedNids.size > 1) {
@@ -3673,55 +3690,113 @@ function Cosmos(props) {
           width: "100%",
           height: "100%",
           display: "block",
-          background: `radial-gradient(ellipse at center, ${C.surface} 0%, ${C.bg} 100%)`,
+          background: `radial-gradient(ellipse at center, ${C.bg1} 0%, ${C.bg0} 75%)`,
           cursor: "grab",
           userSelect: "none",
           touchAction: "none"
         },
         children: [
-          /* @__PURE__ */ jsxs("defs", { children: [
-            /* @__PURE__ */ jsxs("filter", { id: "bqc-glow", children: [
-              /* @__PURE__ */ jsx("feGaussianBlur", { stdDeviation: "4", result: "blur" }),
-              /* @__PURE__ */ jsxs("feMerge", { children: [
-                /* @__PURE__ */ jsx("feMergeNode", { in: "blur" }),
-                /* @__PURE__ */ jsx("feMergeNode", { in: "SourceGraphic" })
-              ] })
-            ] }),
-            /* @__PURE__ */ jsx("filter", { id: "bqc-shadow", x: "-50%", y: "-50%", width: "200%", height: "200%", children: /* @__PURE__ */ jsx("feDropShadow", { dx: "0", dy: "3", stdDeviation: "2", floodOpacity: "0.25" }) })
-          ] }),
+          /* @__PURE__ */ jsx("defs", { children: /* @__PURE__ */ jsxs("radialGradient", { id: "bqc-planet-glow", children: [
+            /* @__PURE__ */ jsx("stop", { offset: "0%", stopOpacity: "0.45", stopColor: "white" }),
+            /* @__PURE__ */ jsx("stop", { offset: "100%", stopOpacity: "0", stopColor: "white" })
+          ] }) }),
           /* @__PURE__ */ jsxs("g", { ref: gRef, children: [
             orbits.map((o) => /* @__PURE__ */ jsxs("g", { children: [
-              /* @__PURE__ */ jsx("circle", { cx: 0, cy: 0, r: o.radius, fill: "none", stroke: o.color, strokeOpacity: 0.35, strokeDasharray: "3 5" }),
-              /* @__PURE__ */ jsx("text", { x: 0, y: -o.radius - 6, textAnchor: "middle", fontSize: 10, fill: o.color, opacity: 0.85, style: { pointerEvents: "none" }, children: o.label })
+              /* @__PURE__ */ jsx(
+                "circle",
+                {
+                  cx: 0,
+                  cy: 0,
+                  r: o.radius,
+                  fill: "none",
+                  stroke: o.color,
+                  strokeOpacity: 0.18,
+                  strokeDasharray: "2 6",
+                  strokeWidth: 1
+                }
+              ),
+              /* @__PURE__ */ jsx(
+                "text",
+                {
+                  x: 0,
+                  y: -o.radius - 4,
+                  textAnchor: "middle",
+                  fontSize: 9,
+                  fill: o.color,
+                  opacity: 0.7,
+                  style: { pointerEvents: "none", letterSpacing: 0.5, textTransform: "uppercase" },
+                  children: o.label
+                }
+              )
             ] }, `o-${o.key}`)),
-            /* @__PURE__ */ jsx("circle", { cx: 0, cy: 0, r: 6, fill: C.sun }),
-            /* @__PURE__ */ jsx("circle", { cx: 0, cy: 0, r: 14, fill: C.sun, opacity: 0.2 }),
-            visEdges.map((e, i) => /* @__PURE__ */ jsx("path", { "data-from": e.from, "data-to": e.to, d: "", fill: "none", style: { stroke: C.edge }, strokeWidth: 6, strokeLinecap: "round", opacity: 0.1 }, `s${i}`)),
+            /* @__PURE__ */ jsx("circle", { cx: 0, cy: 0, r: 20, fill: C.sun, opacity: 0.08 }),
+            /* @__PURE__ */ jsx("circle", { cx: 0, cy: 0, r: 10, fill: C.sun, opacity: 0.25 }),
+            /* @__PURE__ */ jsx("circle", { cx: 0, cy: 0, r: 4, fill: C.sun }),
+            visEdges.map((e, i) => {
+              const focused = !hoveredNeighbors || hoveredNeighbors.has(e.from) && hoveredNeighbors.has(e.to);
+              return /* @__PURE__ */ jsx(
+                "line",
+                {
+                  "data-from": e.from,
+                  "data-to": e.to,
+                  stroke: C.edge,
+                  strokeWidth: 1,
+                  strokeOpacity: focused ? 0.55 : 0.12,
+                  strokeLinecap: "round"
+                },
+                `s${i}`
+              );
+            }),
             visCtxEdges.map((ce, i) => {
               const rd = relDef(ce.relation);
-              const col = tok(rd.color);
-              const label = `${rd.label}${ce.count > 1 ? ` ·${ce.count}` : ""}`;
-              const lw = label.length * 4.2 + 8;
-              return /* @__PURE__ */ jsxs("g", { children: [
-                /* @__PURE__ */ jsx(
-                  "path",
-                  {
-                    "data-from": ce.from,
-                    "data-to": ce.to,
-                    d: "",
-                    fill: "none",
-                    style: { stroke: col },
-                    strokeWidth: 3 + Math.min(ce.count, 3),
-                    strokeLinecap: "round",
-                    opacity: ce.strength * 0.75,
-                    filter: "url(#bqc-glow)"
-                  }
-                ),
-                showCtxLabels && /* @__PURE__ */ jsxs("g", { "data-ctx": true, "data-from": ce.from, "data-to": ce.to, children: [
-                  /* @__PURE__ */ jsx("rect", { x: -lw / 2, y: -7, width: lw, height: 12, rx: 6, style: { fill: C.bg, stroke: col }, strokeWidth: 1, opacity: 0.95 }),
-                  /* @__PURE__ */ jsx("text", { y: 2, textAnchor: "middle", style: { fill: col, pointerEvents: "none", fontWeight: 600 }, fontSize: 8, children: label })
-                ] })
-              ] }, `ctx-${i}`);
+              const col = colorOf(rd.color, i);
+              const w = 1 + Math.min(ce.count - 1, 2) * 0.4;
+              const focused = !hoveredNeighbors || hoveredNeighbors.has(ce.from) && hoveredNeighbors.has(ce.to);
+              return /* @__PURE__ */ jsx(
+                "line",
+                {
+                  "data-from": ce.from,
+                  "data-to": ce.to,
+                  stroke: col,
+                  strokeWidth: w,
+                  strokeOpacity: focused ? Math.min(0.25 + ce.strength * 0.5, 0.7) : 0.1,
+                  strokeLinecap: "round"
+                },
+                `ctx-${i}`
+              );
+            }),
+            showCtxLabels && visCtxEdges.map((ce, i) => {
+              const rd = relDef(ce.relation);
+              const col = colorOf(rd.color, i);
+              const a2 = posOf(ce.from);
+              const b = posOf(ce.to);
+              return /* @__PURE__ */ jsxs(
+                "text",
+                {
+                  "data-ctx": true,
+                  "data-from": ce.from,
+                  "data-to": ce.to,
+                  x: (a2.x + b.x) / 2,
+                  y: (a2.y + b.y) / 2 - 4,
+                  textAnchor: "middle",
+                  fontSize: 7.5,
+                  fill: col,
+                  opacity: 0.85,
+                  style: {
+                    pointerEvents: "none",
+                    paintOrder: "stroke",
+                    letterSpacing: 0.3
+                  },
+                  stroke: C.bg0,
+                  strokeWidth: 2.5,
+                  strokeOpacity: 0.9,
+                  children: [
+                    rd.label,
+                    ce.count > 1 ? ` ·${ce.count}` : ""
+                  ]
+                },
+                `cl-${i}`
+              );
             }),
             highlightPairs.map((p, i) => /* @__PURE__ */ jsx(
               "line",
@@ -3733,24 +3808,22 @@ function Cosmos(props) {
                 x2: posOf(p.to).x,
                 y2: posOf(p.to).y,
                 stroke: C.warn,
-                strokeOpacity: 0.55,
-                strokeWidth: 1.5
+                strokeOpacity: 0.5,
+                strokeWidth: 1,
+                strokeDasharray: "3 3"
               },
               `hl-${i}`
             )),
             visFlashPairs.map((pair, i) => /* @__PURE__ */ jsx(
-              "path",
+              "line",
               {
                 "data-from": pair.fromNid,
                 "data-to": pair.toNid,
-                d: "",
-                fill: "none",
-                style: { stroke: C.warn },
-                strokeWidth: pair.fresh ? 6 : 4,
+                stroke: C.warn,
+                strokeWidth: pair.fresh ? 2 : 1.2,
+                strokeOpacity: pair.fresh ? 0.9 : 0.55,
                 strokeLinecap: "round",
-                opacity: pair.fresh ? 0.9 : 0.55,
-                filter: "url(#bqc-glow)",
-                children: pair.fresh && /* @__PURE__ */ jsx("animate", { attributeName: "opacity", values: "1;0.4;1;0.9", dur: "1s", repeatCount: "3", fill: "freeze" })
+                children: pair.fresh && /* @__PURE__ */ jsx("animate", { attributeName: "stroke-opacity", values: "1;0.3;1;0.7", dur: "1s", repeatCount: "3", fill: "freeze" })
               },
               `fp-${i}`
             )),
@@ -3758,7 +3831,7 @@ function Cosmos(props) {
               const nid = n.nid;
               const p = posOf(nid);
               const sim = simNodesRef.current.get(nid);
-              const orbitColor = (sim == null ? void 0 : sim.orbitColor) ?? tok("neutral");
+              const orbitColor = (sim == null ? void 0 : sim.orbitColor) ?? "#94a3b8";
               const h = hits[nid] || 0;
               const s = Math.min(h / 5, 1);
               const disc = !gating || discovered.has(nid);
@@ -3766,43 +3839,63 @@ function Cosmos(props) {
               const mast = gating && s >= 1;
               const isNext = gating && nid === nextNid && !discovered.has(nid);
               const isSel = selectedId === n.id;
+              const isHov = hovered === nid;
               const isHl = highlightedNids.has(nid);
               const big = bigBranchSet.has(n.branch || "_none");
-              const r = (mast ? 22 : disc ? 18 : 16) + (big ? 8 : 0);
-              const fill = disc ? orbitColor : C.surface;
-              const ringCol = disc ? orbitColor : C.muted;
+              const r = (mast ? 11 : disc ? 9 : 7) + (big ? 4 : 0);
+              const fill = disc ? orbitColor : "#1a2440";
+              const ring = disc ? orbitColor : C.muted;
               const titleVisible = !gating || disc || revealed.has(nid);
               const moonsForThis = showMoonsForNid(nid) ? lexsByNid.get(nid) || [] : [];
-              const numberDisplay = gating ? mast ? "★" : disc ? String(h) : front ? "＋" : "🔒" : String(n.tier ?? "");
+              const dim = hoveredNeighbors && !hoveredNeighbors.has(nid);
+              const numberDisplay = gating ? mast ? "★" : disc ? String(h) : front ? "＋" : "🔒" : n.tier ? String(n.tier) : "";
               return /* @__PURE__ */ jsxs(
                 "g",
                 {
                   className: "bqc-node",
                   "data-nid": nid,
                   transform: `translate(${p.x},${p.y})`,
+                  onMouseEnter: () => setHovered(nid),
+                  onMouseLeave: () => setHovered((prev) => prev === nid ? null : prev),
                   onClick: () => {
                     if (gating) setRevealed((prev) => new Set(prev).add(nid));
                     onSelectNode == null ? void 0 : onSelectNode(n);
                   },
-                  style: { cursor: "pointer" },
+                  style: { cursor: "pointer", opacity: dim ? 0.3 : 1, transition: "opacity 150ms" },
                   children: [
-                    (isSel || isHl) && /* @__PURE__ */ jsx("circle", { r: r + 8, fill: "none", style: { stroke: isHl && !isSel ? C.warn : C.primary }, strokeWidth: 2.5, opacity: 0.7 }),
-                    isNext && [0, 0.7, 1.4].map((delay, k) => /* @__PURE__ */ jsxs("circle", { r, fill: "none", style: { stroke: C.primary }, strokeWidth: 5, children: [
-                      /* @__PURE__ */ jsx("animate", { attributeName: "r", values: `${r};${r + 24}`, dur: "2.1s", begin: `${delay}s`, repeatCount: "indefinite" }),
-                      /* @__PURE__ */ jsx("animate", { attributeName: "opacity", values: "1;0", dur: "2.1s", begin: `${delay}s`, repeatCount: "indefinite" }),
-                      /* @__PURE__ */ jsx("animate", { attributeName: "stroke-width", values: "5;1", dur: "2.1s", begin: `${delay}s`, repeatCount: "indefinite" })
-                    ] }, `sonar-${k}`)),
-                    /* @__PURE__ */ jsx("circle", { cy: 3, r, style: { fill: C.edge }, opacity: 0.15 }),
-                    /* @__PURE__ */ jsx("circle", { r, style: { fill, stroke: ringCol }, strokeWidth: disc ? 3 : 2, filter: "url(#bqc-shadow)", children: gating && disc && !mast && /* @__PURE__ */ jsx("animate", { attributeName: "r", values: `${r};${r + 3};${r}`, dur: "2s", repeatCount: "1" }) }),
-                    mast && /* @__PURE__ */ jsx("circle", { r: r - 5, fill: "none", style: { stroke: C.bg }, strokeWidth: 2, opacity: 0.6 }),
                     /* @__PURE__ */ jsx(
+                      "circle",
+                      {
+                        r: r * 2.5,
+                        fill,
+                        opacity: isSel || isHov || isHl ? 0.35 : 0.18,
+                        style: { filter: "url(#bqc-planet-glow)" }
+                      }
+                    ),
+                    isNext && [0, 0.7, 1.4].map((delay, k) => /* @__PURE__ */ jsxs("circle", { r, fill: "none", stroke: C.primary, strokeWidth: 2, children: [
+                      /* @__PURE__ */ jsx("animate", { attributeName: "r", values: `${r};${r + 22}`, dur: "2.1s", begin: `${delay}s`, repeatCount: "indefinite" }),
+                      /* @__PURE__ */ jsx("animate", { attributeName: "opacity", values: "0.9;0", dur: "2.1s", begin: `${delay}s`, repeatCount: "indefinite" })
+                    ] }, `sonar-${k}`)),
+                    (isSel || isHl) && /* @__PURE__ */ jsx(
+                      "circle",
+                      {
+                        r: r + 4,
+                        fill: "none",
+                        stroke: isHl && !isSel ? C.warn : C.primary,
+                        strokeWidth: 1.5,
+                        opacity: 0.85
+                      }
+                    ),
+                    /* @__PURE__ */ jsx("circle", { r, fill, stroke: ring, strokeWidth: disc ? 1.5 : 1 }),
+                    mast && /* @__PURE__ */ jsx("circle", { r: r - 3, fill: "none", stroke: C.bg0, strokeWidth: 1, opacity: 0.7 }),
+                    numberDisplay && /* @__PURE__ */ jsx(
                       "text",
                       {
-                        y: mast ? 6 : 5,
+                        y: mast ? 4 : 3,
                         textAnchor: "middle",
-                        fontSize: mast ? 18 : 13,
+                        fontSize: mast ? r : Math.max(7, r - 2),
                         style: {
-                          fill: disc ? C.bg : C.muted,
+                          fill: disc ? C.bg0 : C.muted,
                           fontWeight: 700,
                           pointerEvents: "none"
                         },
@@ -3812,40 +3905,41 @@ function Cosmos(props) {
                     /* @__PURE__ */ jsx(
                       "text",
                       {
-                        y: r + 14,
+                        y: r + 11,
                         textAnchor: "middle",
+                        fontSize: 9,
                         style: {
                           fill: C.text,
-                          fontWeight: disc ? 700 : 500,
+                          fontWeight: 500,
                           pointerEvents: "none",
-                          paintOrder: "stroke"
+                          paintOrder: "stroke",
+                          letterSpacing: 0.2
                         },
-                        stroke: C.bg,
-                        strokeWidth: 2.5,
-                        strokeOpacity: 0.6,
-                        fontSize: 11,
-                        opacity: isSel || isHl ? 1 : titleVisible && (disc || showAllLabels) ? disc ? 1 : 0.6 : titleVisible ? 0.35 : 0,
+                        stroke: C.bg0,
+                        strokeWidth: 2,
+                        strokeOpacity: 0.9,
+                        opacity: isSel || isHov || isHl ? 1 : showAllLabels ? titleVisible ? 0.9 : 0.4 : 0,
                         children: (titleVisible ? String(n.title) : "???").slice(0, 24)
                       }
                     ),
                     moonsForThis.map((moon, i) => {
-                      const ang = i / Math.max(moonsForThis.length, 1) * Math.PI * 2;
-                      const mx = Math.cos(ang) * (r + 8);
-                      const my = Math.sin(ang) * (r + 8);
+                      const ang = i / Math.max(moonsForThis.length, 1) * Math.PI * 2 - Math.PI / 2;
+                      const mx = Math.cos(ang) * (r + 6);
+                      const my = Math.sin(ang) * (r + 6);
                       const mc = moonColor(moon.category);
                       const moonSel = selectedLexId === moon.id;
                       const moonRel = relatedLexIds.has(moon.id);
                       return /* @__PURE__ */ jsxs("g", { children: [
-                        moonRel && /* @__PURE__ */ jsx("circle", { cx: mx, cy: my, r: 5, fill: "none", stroke: C.warn, strokeOpacity: 0.55, strokeWidth: 1 }),
+                        moonRel && /* @__PURE__ */ jsx("circle", { cx: mx, cy: my, r: 4, fill: "none", stroke: C.warn, strokeOpacity: 0.6, strokeWidth: 0.8 }),
                         /* @__PURE__ */ jsx(
                           "circle",
                           {
                             cx: mx,
                             cy: my,
-                            r: moonSel ? 4 : 2.8,
+                            r: moonSel ? 2.8 : 1.8,
                             fill: mc,
-                            stroke: moonSel ? C.bg : "none",
-                            strokeWidth: 1,
+                            stroke: moonSel ? "#fff" : "none",
+                            strokeWidth: 0.6,
                             style: { cursor: "pointer" },
                             onClick: (e) => {
                               e.stopPropagation();
@@ -3875,13 +3969,16 @@ function Cosmos(props) {
       display: "flex",
       gap: 6,
       alignItems: "center",
-      background: "rgba(0,0,0,0.4)",
-      padding: "4px 8px",
-      borderRadius: 6,
-      fontSize: 11,
-      color: C.text
+      background: "rgba(5,8,19,0.7)",
+      padding: "4px 10px",
+      borderRadius: 999,
+      border: `1px solid rgba(100,116,139,0.3)`,
+      fontSize: 10,
+      color: C.text,
+      letterSpacing: 0.5,
+      backdropFilter: "blur(8px)"
     }, children: [
-      /* @__PURE__ */ jsxs("span", { children: [
+      /* @__PURE__ */ jsxs("span", { style: { opacity: 0.7 }, children: [
         zoomPct,
         "%"
       ] }),
@@ -3892,13 +3989,15 @@ function Cosmos(props) {
           style: {
             background: "transparent",
             color: C.text,
-            border: `1px solid ${C.muted}`,
+            border: "none",
             borderRadius: 4,
             padding: "2px 6px",
             cursor: "pointer",
-            fontSize: 11
+            fontSize: 10,
+            opacity: 0.85,
+            letterSpacing: 0.5
           },
-          children: "Reset"
+          children: "RESET"
         }
       )
     ] })
