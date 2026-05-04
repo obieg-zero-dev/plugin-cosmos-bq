@@ -537,12 +537,28 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
           const d = Math.hypot(dx, dy) || 1
           const x2 = hasType ? b.x - (dx / d) * (targetR + 3) : b.x
           const y2 = hasType ? b.y - (dy / d) * (targetR + 3) : b.y
+          // Strzałka jako <path> (NIE marker) — żeby dziedziczyć opacity linii.
+          let arrowPath: string | null = null
+          if (hasType) {
+            const ang = Math.atan2(dy, dx)
+            const arrSize = 6
+            const baseX = x2 - arrSize * Math.cos(ang)
+            const baseY = y2 - arrSize * Math.sin(ang)
+            const w = arrSize * 0.55
+            const w1x = baseX + w * Math.sin(ang)
+            const w1y = baseY - w * Math.cos(ang)
+            const w2x = baseX - w * Math.sin(ang)
+            const w2y = baseY + w * Math.cos(ang)
+            arrowPath = `M${x2},${y2} L${w1x},${w1y} L${w2x},${w2y} Z`
+          }
           return (
             <g key={e.id}>
               <line x1={a.x} y1={a.y} x2={x2} y2={y2}
                 stroke="#fff" strokeOpacity={op} strokeWidth={sw}
-                strokeDasharray={dashed ? '4 3' : undefined}
-                markerEnd={hasType ? 'url(#cos-arrow)' : undefined} />
+                strokeDasharray={dashed ? '4 3' : undefined} />
+              {arrowPath && (
+                <path d={arrowPath} fill="#fff" opacity={op} />
+              )}
               {showLabel && (
                 <Label x={(a.x + b.x) / 2} y={(a.y + b.y) / 2 - 4}
                   text={String(e.data.type)} color="#cbd5e1"
@@ -709,13 +725,6 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
           onMouseUp={finishDrag}
           onMouseLeave={finishDrag}
           onClick={onBackgroundClick}>
-          <defs>
-            <marker id="cos-arrow" viewBox="-5 -5 10 10"
-              refX="0" refY="0" markerWidth="5" markerHeight="5"
-              orient="auto" markerUnits="strokeWidth">
-              <path d="M-4,-4 L0,0 L-4,4 Z" fill="#fff" opacity="0.85" />
-            </marker>
-          </defs>
           <g ref={gRef}>
             {orbitsLayer}
             <circle cx={cx} cy={cy} r={6} fill="#fde68a" />

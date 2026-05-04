@@ -1314,6 +1314,19 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
         const d = Math.hypot(dx, dy) || 1;
         const x2 = hasType ? b.x - dx / d * (targetR + 3) : b.x;
         const y2 = hasType ? b.y - dy / d * (targetR + 3) : b.y;
+        let arrowPath = null;
+        if (hasType) {
+          const ang = Math.atan2(dy, dx);
+          const arrSize = 6;
+          const baseX = x2 - arrSize * Math.cos(ang);
+          const baseY = y2 - arrSize * Math.sin(ang);
+          const w = arrSize * 0.55;
+          const w1x = baseX + w * Math.sin(ang);
+          const w1y = baseY - w * Math.cos(ang);
+          const w2x = baseX - w * Math.sin(ang);
+          const w2y = baseY + w * Math.cos(ang);
+          arrowPath = `M${x2},${y2} L${w1x},${w1y} L${w2x},${w2y} Z`;
+        }
         return /* @__PURE__ */ jsxs("g", { children: [
           /* @__PURE__ */ jsx(
             "line",
@@ -1325,10 +1338,10 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
               stroke: "#fff",
               strokeOpacity: op,
               strokeWidth: sw,
-              strokeDasharray: dashed ? "4 3" : void 0,
-              markerEnd: hasType ? "url(#cos-arrow)" : void 0
+              strokeDasharray: dashed ? "4 3" : void 0
             }
           ),
+          arrowPath && /* @__PURE__ */ jsx("path", { d: arrowPath, fill: "#fff", opacity: op }),
           showLabel && /* @__PURE__ */ jsx(
             Label,
             {
@@ -1540,7 +1553,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
       }) });
     }, [nodes, positions, slidesByNodeId, selectedNid, highlightedNids, hovered, zoomPct]);
     return /* @__PURE__ */ jsxs("div", { style: { position: "relative", width: "100%", height: "100%" }, children: [
-      /* @__PURE__ */ jsxs(
+      /* @__PURE__ */ jsx(
         "svg",
         {
           ref: svgRef,
@@ -1553,32 +1566,16 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
           onMouseUp: finishDrag,
           onMouseLeave: finishDrag,
           onClick: onBackgroundClick,
-          children: [
-            /* @__PURE__ */ jsx("defs", { children: /* @__PURE__ */ jsx(
-              "marker",
-              {
-                id: "cos-arrow",
-                viewBox: "-5 -5 10 10",
-                refX: "0",
-                refY: "0",
-                markerWidth: "5",
-                markerHeight: "5",
-                orient: "auto",
-                markerUnits: "strokeWidth",
-                children: /* @__PURE__ */ jsx("path", { d: "M-4,-4 L0,0 L-4,4 Z", fill: "#fff", opacity: "0.85" })
-              }
-            ) }),
-            /* @__PURE__ */ jsxs("g", { ref: gRef, children: [
-              orbitsLayer,
-              /* @__PURE__ */ jsx("circle", { cx, cy, r: 6, fill: "#fde68a" }),
-              /* @__PURE__ */ jsx("circle", { cx, cy, r: 14, fill: "#fde68a", opacity: 0.2 }),
-              contextLayer,
-              edgesLayer,
-              highlightLines,
-              planetsLayer,
-              labelsLayer
-            ] })
-          ]
+          children: /* @__PURE__ */ jsxs("g", { ref: gRef, children: [
+            orbitsLayer,
+            /* @__PURE__ */ jsx("circle", { cx, cy, r: 6, fill: "#fde68a" }),
+            /* @__PURE__ */ jsx("circle", { cx, cy, r: 14, fill: "#fde68a", opacity: 0.2 }),
+            contextLayer,
+            edgesLayer,
+            highlightLines,
+            planetsLayer,
+            labelsLayer
+          ] })
         }
       ),
       /* @__PURE__ */ jsxs("div", { style: { position: "absolute", top: 8, right: 8, display: "flex", gap: 6, alignItems: "center", background: "rgba(10,14,26,0.7)", padding: "4px 8px", borderRadius: 6, fontSize: 11, color: "#cbd5e1" }, children: [
