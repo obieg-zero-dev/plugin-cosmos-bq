@@ -1,37 +1,84 @@
 import type { PluginFactory, PostRecord } from '@obieg-zero/sdk'
+import { forceSimulation, forceLink, forceCollide, forceRadial, forceManyBody } from 'd3-force'
 
 const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
-  const { useMemo, useEffect } = React
-  const { Plus, Link2, Share2, GitBranch } = icons
+  const { useMemo, useEffect, useState, useRef } = React
+  const { Share2, GitBranch, Edit3, Maximize2 } = icons
 
   // Używamy typów BQ: 'tree' (root), 'node' (parent: tree), 'edge' (parent: tree).
-  // Nie rejestrujemy własnych — plugin BrainQuest robi to pierwszy.
+  // Plugin jest tylko PRZEGLĄDARKĄ — edycję robi plugin-brain-quest-studio.
 
-  type Mode = 'browse' | 'add-node' | 'edit-node' | 'add-edge'
   const useNav = sdk.create(() => ({
     treeId: null as string | null,
-    selectedNid: null as string | null,  // node.data.nodeId (string)
-    mode: 'browse' as Mode,
+    selectedNid: null as string | null,
+    selectedLexId: null as string | null,
   }))
 
-  const goBrowse = () => useNav.setState({ mode: 'browse' })
-
-  // Wybór węzła synchronizujemy z sdk.shared.bq — żeby reader/arena widziały to samo
   const selectByNid = (treeId: string, nid: string) => {
     const node = (store.getPosts('node') as PostRecord[])
       .find(n => n.parentId === treeId && String(n.data.nodeId) === nid)
-    useNav.setState({ selectedNid: nid, mode: 'browse' })
+    useNav.setState({ selectedNid: nid, selectedLexId: null })
     if (node) sdk.shared.setState({ bq: { treeId, nodeId: nid, postId: node.id } })
   }
 
-  // ── Lewy panel: wybór drzewa + lista węzłów ───────────────────────
+  const selectByLex = (lexId: string) => {
+    useNav.setState({ selectedLexId: lexId, selectedNid: null })
+  }
+
+  // Kolory kategorii leksykonu (księżyce)
+  const CAT_COLORS: Record<string, string> = {
+    motyw: '#f59e0b',
+    topos: '#ef4444',
+    gatunek: '#4a90e2',
+    srodek: '#9b59b6',
+    srodek_stylistyczny: '#9b59b6',
+    postac: '#22c55e',
+    pojecie: '#fde68a',
+    'pojęcie': '#fde68a',
+  }
+  const catColor = (c: string) => CAT_COLORS[c] || '#94a3b8'
+
+  // Paleta orbit / nagłówków gałęzi
+  const COLOR_MAP: Record<string, string> = {
+    primary:  '#4a90e2', secondary: '#9b59b6', accent: '#e91e63',
+    info:     '#00bcd4', success:   '#22c55e', warning: '#f59e0b',
+    error:    '#ef4444', neutral:   '#94a3b8',
+  }
+  const PALETTE = ['#4a90e2', '#e91e63', '#22c55e', '#f59e0b', '#9b59b6', '#00bcd4', '#ef4444', '#94a3b8']
+
+  type BranchInfo = { key: string; label: string; color: string; def?: PostRecord }
+  const usedBranchInfos = (nodes: PostRecord[], branches: PostRecord[]): BranchInfo[] => {
+    const byKey = new Map(branches.map(b => [String(b.data.key), b]))
+    const used: string[] = []
+    const seen = new Set<string>()
+    for (const b of branches) {
+      const k = String(b.data.key)
+      if (!seen.has(k) && nodes.some(n => String(n.data.branch || '') === k)) {
+        used.push(k); seen.add(k)
+      }
+    }
+    if (nodes.some(n => !String(n.data.branch || ''))) used.push('_none')
+    return used.map((k, i) => {
+      const def = byKey.get(k)
+      const colorKey = def ? String(def.data.color || '') : ''
+      return {
+        key: k,
+        label: def ? String(def.data.label) : 'bez gałęzi',
+        color: COLOR_MAP[colorKey] || PALETTE[i % PALETTE.length],
+        def,
+      }
+    })
+  }
+  const branchOf = (n: PostRecord) => String(n.data.branch || '') || '_none'
+
+  // ── Lewy panel: drzewko węzłów z wcięciami po gałęzi/tier ─────────
   function LeftPanel() {
     const trees = store.usePosts('tree') as PostRecord[]
-    const { treeId, selectedNid, mode } = useNav()
-    const nodes = store.useChildren(treeId || '', 'node') as PostRecord[]
+    const { treeId, selectedNid } = useNav()
+    const nodes    = store.useChildren(treeId || '', 'node') as PostRecord[]
+    const branches = store.useChildren(treeId || '', 'branch') as PostRecord[]
     const sharedTreeId = sdk.shared(s => (s as any)?.bq?.treeId) as string | undefined
 
-    // Auto-wybór: shared.bq.treeId → pierwsze drzewo
     useEffect(() => {
       if (treeId) return
       const initial = (sharedTreeId && trees.some(t => t.id === sharedTreeId))
@@ -39,6 +86,18 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
         : trees[0]?.id
       if (initial) useNav.setState({ treeId: initial })
     }, [trees.length, sharedTreeId])
+
+    const groups = useMemo(() => {
+      return usedBranchInfos(nodes, branches).map(info => {
+        const inBranch = nodes.filter(n => branchOf(n) === info.key)
+        const sorted = [...inBranch].sort((a, c) => {
+          const ta = parseInt(String(a.data.tier || '1'), 10) || 1
+          const tc = parseInt(String(c.data.tier || '1'), 10) || 1
+          return ta - tc
+        })
+        return { ...info, nodes: sorted }
+      })
+    }, [nodes, branches])
 
     if (trees.length === 0) {
       return (
@@ -59,254 +118,269 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
                 value={treeId || ''}
                 options={trees.map(t => ({ value: t.id, label: String(t.data.title) }))}
                 onChange={(e: { target: { value: string } }) =>
-                  useNav.setState({ treeId: e.target.value, selectedNid: null, mode: 'browse' })}
+                  useNav.setState({ treeId: e.target.value, selectedNid: null })}
               />
             </ui.Field>
 
-            <ui.Row>
-              <ui.Button size="xs" color="primary" disabled={!treeId}
-                onClick={() => useNav.setState({ mode: 'add-node', selectedNid: null })}>
-                <Plus size={12} /> Węzeł
-              </ui.Button>
-              <ui.Button size="xs" color="ghost" disabled={nodes.length < 2}
-                onClick={() => useNav.setState({ mode: 'add-edge' })}>
-                <Link2 size={12} /> Krawędź
-              </ui.Button>
-            </ui.Row>
+            <ui.Text muted size="xs">{nodes.length} węzłów · {groups.length} gałęzi</ui.Text>
 
-            <ui.Text muted size="xs">{nodes.length} węzłów</ui.Text>
-
-            {nodes.map(n => {
-              const nid = String(n.data.nodeId)
-              return (
-                <ui.ListItem key={n.id}
-                  active={selectedNid === nid && mode === 'browse'}
-                  label={String(n.data.title)}
-                  detail={`#${nid}${n.data.branch ? ' · ' + n.data.branch : ''}`}
-                  onClick={() => selectByNid(treeId!, nid)}
-                />
-              )
-            })}
+            {groups.map(g => (
+              <React.Fragment key={g.key}>
+                <ui.Cell label>
+                  <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 4, background: g.color, marginRight: 6 }} />
+                  {g.label}
+                </ui.Cell>
+                {g.nodes.map(n => {
+                  const nid = String(n.data.nodeId)
+                  return (
+                    <ui.ListItem key={n.id}
+                      active={selectedNid === nid}
+                      label={String(n.data.title)}
+                      detail={`tier ${n.data.tier ?? '?'}`}
+                      onClick={() => selectByNid(treeId!, nid)}
+                    />
+                  )
+                })}
+              </React.Fragment>
+            ))}
           </ui.Stack>
         }
       />
     )
   }
 
-  // ── Formularz węzła ───────────────────────────────────────────────
-  function NodeForm({ node }: { node?: PostRecord }) {
-    const { treeId } = useNav()
-    const editing = !!node
-    const branches = store.useChildren(treeId || '', 'branch') as PostRecord[]
-    const branchOpts = [
-      { value: '', label: '— bez gałęzi —' },
-      ...branches.map(b => ({ value: String(b.data.key), label: String(b.data.label) })),
-    ]
-
-    const { bind, submit } = sdk.useForm(
-      {
-        nodeId: editing ? String(node!.data.nodeId) : '',
-        title:  editing ? String(node!.data.title)  : '',
-        branch: editing ? String(node!.data.branch || '') : '',
-        tier:   editing ? String(node!.data.tier || '')   : '',
-      },
-      {
-        isComplete: (d: any) => !!String(d.nodeId || '').trim() && !!String(d.title || '').trim(),
-        onSubmit: (d: any) => {
-          const data = {
-            nodeId: String(d.nodeId).trim(),
-            title:  String(d.title).trim(),
-            branch: String(d.branch || '').trim(),
-            tier:   String(d.tier || '').trim(),
-          }
-          if (editing) store.update(node!.id, data)
-          else if (treeId) {
-            const created = store.add('node', data, { parentId: treeId })
-            useNav.setState({ selectedNid: data.nodeId })
-            sdk.shared.setState({ bq: { treeId, nodeId: data.nodeId, postId: created.id } })
-          }
-          sdk.log(editing ? 'Węzeł zaktualizowany' : 'Węzeł dodany', 'ok')
-          goBrowse()
-        },
-      },
-    )
-
-    const remove = () => {
-      if (!node) return
-      store.remove(node.id)
-      useNav.setState({ selectedNid: null, mode: 'browse' })
-      sdk.log('Węzeł usunięty', 'ok')
-    }
-
-    return (
-      <ui.Page>
-        <ui.Stack>
-          <ui.Heading title={editing ? 'Edytuj węzeł' : 'Nowy węzeł'} subtitle="Pola BQ" />
-          <ui.Card>
-            <ui.Stack gap="md">
-              <ui.Field label="ID węzła (klucz w grafie)" required>
-                <ui.Input placeholder="np. demokracja_ateny" {...bind('nodeId')} />
-              </ui.Field>
-              <ui.Field label="Tytuł" required>
-                <ui.Input {...bind('title')} />
-              </ui.Field>
-              <ui.Field label="Gałąź">
-                <ui.Select options={branchOpts} {...bind('branch')} />
-              </ui.Field>
-              <ui.Field label="Poziom (1–3)">
-                <ui.Input {...bind('tier')} />
-              </ui.Field>
-            </ui.Stack>
-          </ui.Card>
-          <ui.Row justify="between">
-            {editing
-              ? <ui.Button color="error" outline onClick={remove}>Usuń</ui.Button>
-              : <span />}
-            <ui.Row>
-              <ui.Button color="ghost" outline onClick={goBrowse}>Anuluj</ui.Button>
-              <ui.Button color="primary" onClick={submit}>Zapisz</ui.Button>
-            </ui.Row>
-          </ui.Row>
-        </ui.Stack>
-      </ui.Page>
-    )
-  }
-
-  // ── Formularz krawędzi ────────────────────────────────────────────
-  function EdgeForm() {
-    const { treeId } = useNav()
-    const nodes    = store.useChildren(treeId || '', 'node') as PostRecord[]
-    const relTypes = store.useChildren(treeId || '', 'relType') as PostRecord[]
-
-    const nodeOpts = [
-      { value: '', label: '— wybierz —' },
-      ...nodes.map(n => ({ value: String(n.data.nodeId), label: String(n.data.title) })),
-    ]
-    const typeOpts = [
-      { value: '', label: '— bez typu —' },
-      ...relTypes.map(r => ({ value: String(r.data.key), label: String(r.data.label) })),
-    ]
-
-    const { bind, submit } = sdk.useForm(
-      { fromNid: '', toNid: '', type: '' },
-      {
-        isComplete: (d: any) => !!d.fromNid && !!d.toNid && d.fromNid !== d.toNid,
-        onSubmit: (d: any) => {
-          if (treeId) store.add('edge', { fromNid: d.fromNid, toNid: d.toNid, type: String(d.type || '') }, { parentId: treeId })
-          sdk.log('Krawędź dodana', 'ok')
-          goBrowse()
-        },
-      },
-    )
-
-    return (
-      <ui.Page>
-        <ui.Stack>
-          <ui.Heading title="Nowa krawędź" subtitle="Skierowana: Z → Do" />
-          <ui.Card>
-            <ui.Stack gap="md">
-              <ui.Field label="Z" required><ui.Select options={nodeOpts} {...bind('fromNid')} /></ui.Field>
-              <ui.Field label="Do" required><ui.Select options={nodeOpts} {...bind('toNid')} /></ui.Field>
-              <ui.Field label="Typ relacji"><ui.Select options={typeOpts} {...bind('type')} /></ui.Field>
-            </ui.Stack>
-          </ui.Card>
-          <ui.Row justify="end">
-            <ui.Button color="ghost" outline onClick={goBrowse}>Anuluj</ui.Button>
-            <ui.Button color="primary" onClick={submit}>Dodaj</ui.Button>
-          </ui.Row>
-        </ui.Stack>
-      </ui.Page>
-    )
-  }
-
   // ── Widok GRAFU: kosmiczny model — każda gałąź = własna orbita ────
-  const COLOR_MAP: Record<string, string> = {
-    primary:  '#4a90e2', secondary: '#9b59b6', accent: '#e91e63',
-    info:     '#00bcd4', success:   '#22c55e', warning: '#f59e0b',
-    error:    '#ef4444', neutral:   '#94a3b8',
-  }
-  const PALETTE = ['#4a90e2', '#e91e63', '#22c55e', '#f59e0b', '#9b59b6', '#00bcd4', '#ef4444', '#94a3b8']
-
   function GraphView() {
-    const { treeId, selectedNid } = useNav()
+    const { treeId, selectedNid, selectedLexId } = useNav()
     const nodes    = store.useChildren(treeId || '', 'node') as PostRecord[]
     const edges    = store.useChildren(treeId || '', 'edge') as PostRecord[]
     const branches = store.useChildren(treeId || '', 'branch') as PostRecord[]
+    const lexicons = store.useChildren(treeId || '', 'lexicon') as PostRecord[]
+    const allLexNodes = store.usePosts('lexNode') as PostRecord[]
+
+    const { lexsByNid, nidsByLex } = useMemo(() => {
+      const lexById = new Map(lexicons.map(l => [l.id, l]))
+      const lexsByNid = new Map<string, PostRecord[]>()
+      const nidsByLex = new Map<string, Set<string>>()
+      for (const ln of allLexNodes) {
+        const lex = lexById.get(ln.parentId); if (!lex) continue
+        const nid = String(ln.data.nid)
+        if (!lexsByNid.has(nid)) lexsByNid.set(nid, [])
+        lexsByNid.get(nid)!.push(lex)
+        if (!nidsByLex.has(lex.id)) nidsByLex.set(lex.id, new Set())
+        nidsByLex.get(lex.id)!.add(nid)
+      }
+      return { lexsByNid, nidsByLex }
+    }, [lexicons, allLexNodes])
+
+    const highlightedNids = selectedLexId ? (nidsByLex.get(selectedLexId) || new Set<string>()) : new Set<string>()
+
+    // Powiązane terminy: inne lex współwystępujące w tych samych węzłach
+    const relatedLexIds = useMemo(() => {
+      if (!selectedLexId) return new Set<string>()
+      const myNids = nidsByLex.get(selectedLexId) || new Set<string>()
+      const ids = new Set<string>()
+      for (const nid of myNids) {
+        const here = lexsByNid.get(nid) || []
+        for (const l of here) if (l.id !== selectedLexId) ids.add(l.id)
+      }
+      return ids
+    }, [selectedLexId, nidsByLex, lexsByNid])
 
     const cx = 300, cy = 300
 
     const { positions, orbits } = useMemo(() => {
-      const rMin = 70, rMax = 270
-      const branchByKey = new Map(branches.map(b => [String(b.data.key), b]))
+      const rMin = 110
+      const minArc = 38
+      const baseStep = 95
 
-      // Tylko gałęzie faktycznie używane przez węzły (+ ewentualnie '_none')
-      const usedKeys: string[] = []
-      const seen = new Set<string>()
-      for (const b of branches) {
-        const k = String(b.data.key)
-        if (!seen.has(k) && nodes.some(n => String(n.data.branch || '') === k)) {
-          usedKeys.push(k); seen.add(k)
-        }
+      const countPerKey = new Map<string, number>()
+      for (const n of nodes) {
+        const k = branchOf(n)
+        countPerKey.set(k, (countPerKey.get(k) || 0) + 1)
       }
-      if (nodes.some(n => !String(n.data.branch || ''))) usedKeys.push('_none')
-
-      const N = Math.max(usedKeys.length, 1)
-      const step = N > 1 ? (rMax - rMin) / (N - 1) : 0
-
-      const orbits = usedKeys.map((k, i) => {
-        const b = branchByKey.get(k)
-        const colorKey = b ? String(b.data.color || '') : ''
-        return {
-          key: k,
-          label: b ? String(b.data.label) : 'bez gałęzi',
-          color: COLOR_MAP[colorKey] || PALETTE[i % PALETTE.length],
-          radius: N > 1 ? rMin + i * step : (rMin + rMax) / 2,
-        }
+      let prevR = rMin
+      const orbits = usedBranchInfos(nodes, branches).map((info, i) => {
+        const cnt = countPerKey.get(info.key) || 1
+        const required = (cnt * minArc) / (2 * Math.PI)
+        const r = Math.max(prevR + (i === 0 ? 0 : baseStep), required)
+        prevR = r
+        return { ...info, radius: r }
       })
 
-      const positions = new Map<string, { x: number; y: number; color: string }>()
+      type SimNode = { id: string; x: number; y: number; r: number; color: string; branch: string }
+      const simNodes: SimNode[] = []
       for (const orbit of orbits) {
-        const onOrbit = nodes.filter(n =>
-          (String(n.data.branch || '') || '_none') === orbit.key,
-        )
+        const onOrbit = nodes.filter(n => branchOf(n) === orbit.key)
         onOrbit.forEach((n, j) => {
           const a = (j / Math.max(onOrbit.length, 1)) * Math.PI * 2 - Math.PI / 2
-          positions.set(String(n.data.nodeId), {
+          simNodes.push({
+            id: String(n.data.nodeId),
             x: cx + Math.cos(a) * orbit.radius,
             y: cy + Math.sin(a) * orbit.radius,
+            r: orbit.radius,
             color: orbit.color,
+            branch: orbit.key,
           })
         })
       }
 
+      const nidSet = new Set(simNodes.map(n => n.id))
+      const simLinks = edges
+        .map(e => ({ source: String(e.data.fromNid), target: String(e.data.toNid) }))
+        .filter(l => nidSet.has(l.source) && nidSet.has(l.target))
+
+      const sim = forceSimulation(simNodes as any)
+        .force('radial', forceRadial((d: any) => d.r, cx, cy).strength(0.9))
+        .force('collide', forceCollide(26))
+        .force('link', forceLink(simLinks as any).id((d: any) => d.id).distance(80).strength(0.18))
+        .force('charge', forceManyBody().strength(-22))
+        .stop()
+      for (let i = 0; i < 150; i++) sim.tick()
+
+      const positions = new Map<string, { x: number; y: number; color: string }>()
+      for (const sn of simNodes) {
+        positions.set(sn.id, { x: sn.x, y: sn.y, color: sn.color })
+      }
+
       return { positions, orbits }
-    }, [nodes, branches])
+    }, [nodes, branches, edges])
 
     if (nodes.length === 0) return <ui.Placeholder text="Drzewo nie ma węzłów" />
 
-    return (
-      <svg viewBox="0 0 600 600"
-        style={{ width: '100%', height: 600, background: 'radial-gradient(ellipse at center, #1a2440 0%, #0a0e1a 100%)', borderRadius: 8 }}>
+    return <CosmosSvg
+      cx={cx} cy={cy}
+      orbits={orbits} positions={positions}
+      nodes={nodes} edges={edges}
+      lexsByNid={lexsByNid}
+      selectedNid={selectedNid} selectedLexId={selectedLexId}
+      relatedLexIds={relatedLexIds}
+      highlightedNids={highlightedNids}
+      treeId={treeId!}
+    />
+  }
 
-        {/* orbity */}
+  // ── SVG: pan/zoom + ukrywanie etykiet ─────────────────────────────
+  function CosmosSvg(props: {
+    cx: number; cy: number
+    orbits: Array<{ key: string; label: string; color: string; radius: number }>
+    positions: Map<string, { x: number; y: number; color: string }>
+    nodes: PostRecord[]
+    edges: PostRecord[]
+    lexsByNid: Map<string, PostRecord[]>
+    selectedNid: string | null
+    selectedLexId: string | null
+    relatedLexIds: Set<string>
+    highlightedNids: Set<string>
+    treeId: string
+  }) {
+    const { cx, cy, orbits, positions, nodes, edges, lexsByNid,
+            selectedNid, selectedLexId, relatedLexIds, highlightedNids, treeId } = props
+
+    const svgRef = useRef<SVGSVGElement>(null)
+    const gRef = useRef<SVGGElement>(null)
+    const viewRef = useRef({ zoom: 1, x: 0, y: 0 })
+    const dragRef = useRef<{ sx: number; sy: number; vx: number; vy: number; moved: boolean } | null>(null)
+    const wasMovedRef = useRef(false)
+    const [zoomPct, setZoomPct] = useState(100)
+    const [dragging, setDragging] = useState(false)
+    const [hovered, setHovered] = useState<string | null>(null)
+
+
+    const applyView = () => {
+      const v = viewRef.current
+      gRef.current?.setAttribute('transform', `translate(${v.x} ${v.y}) scale(${v.zoom})`)
+    }
+
+    const reset = () => {
+      viewRef.current = { zoom: 1, x: 0, y: 0 }
+      applyView()
+      setZoomPct(100)
+    }
+
+    const screenToVb = (clientX: number, clientY: number) => {
+      const rect = svgRef.current?.getBoundingClientRect()
+      if (!rect) return { x: 300, y: 300 }
+      const size = Math.min(rect.width, rect.height)
+      const offX = (rect.width - size) / 2
+      const offY = (rect.height - size) / 2
+      return {
+        x: ((clientX - rect.left - offX) / size) * 600,
+        y: ((clientY - rect.top - offY) / size) * 600,
+      }
+    }
+
+    const onWheel = (e: React.WheelEvent) => {
+      const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15
+      const { x: px, y: py } = screenToVb(e.clientX, e.clientY)
+      const v = viewRef.current
+      const z = Math.max(0.5, Math.min(5, v.zoom * factor))
+      const k = z / v.zoom
+      viewRef.current = { zoom: z, x: px - k * (px - v.x), y: py - k * (py - v.y) }
+      applyView()
+      setZoomPct(Math.round(z * 100))
+    }
+
+    const onMouseDown = (e: React.MouseEvent) => {
+      if (e.button !== 0) return
+      const v = viewRef.current
+      dragRef.current = { sx: e.clientX, sy: e.clientY, vx: v.x, vy: v.y, moved: false }
+      setDragging(true)
+      if (hovered) setHovered(null)
+    }
+    const onMouseMove = (e: React.MouseEvent) => {
+      const d = dragRef.current
+      if (!d) return
+      const rect = svgRef.current?.getBoundingClientRect()
+      if (!rect) return
+      const size = Math.min(rect.width, rect.height)
+      const dx = ((e.clientX - d.sx) / size) * 600
+      const dy = ((e.clientY - d.sy) / size) * 600
+      if (!d.moved && Math.hypot(e.clientX - d.sx, e.clientY - d.sy) > 4) d.moved = true
+      viewRef.current.x = d.vx + dx
+      viewRef.current.y = d.vy + dy
+      applyView()
+    }
+
+    const finishDrag = () => {
+      wasMovedRef.current = dragRef.current?.moved || false
+      dragRef.current = null
+      setDragging(false)
+    }
+    const tryClick = (cb: () => void) => {
+      if (wasMovedRef.current) { wasMovedRef.current = false; return }
+      cb()
+    }
+    const setHoverIfIdle = (nid: string | null) => {
+      if (dragRef.current) return
+      setHovered(prev => (prev === nid ? prev : nid))
+    }
+
+    const showAllLabels = zoomPct >= 150
+    const labelOpacity = (sel: boolean, hov: boolean) =>
+      sel ? 1 : hov ? 0.95 : showAllLabels ? 0.8 : 0
+
+    const orbitsLayer = useMemo(() => {
+      return (
+      <>
         {orbits.map(o => (
-          <circle key={'orbit-' + o.key} cx={cx} cy={cy} r={o.radius}
+          <circle key={'o-' + o.key} cx={cx} cy={cy} r={o.radius}
             fill="none" stroke={o.color} strokeOpacity={0.35} strokeDasharray="3 5" />
         ))}
-
-        {/* etykiety orbit */}
         {orbits.map(o => (
-          <text key={'orbit-l-' + o.key} x={cx} y={cy - o.radius - 6}
-            textAnchor="middle" fontSize={10} fill={o.color} opacity={0.85}>
+          <text key={'ol-' + o.key} x={cx} y={cy - o.radius - 6}
+            textAnchor="middle" fontSize={10} fill={o.color} opacity={0.85}
+            style={{ pointerEvents: 'none' }}>
             {o.label}
           </text>
         ))}
+      </>
+      )
+    }, [orbits, cx, cy])
 
-        {/* słońce */}
-        <circle cx={cx} cy={cy} r={6} fill="#fde68a" />
-        <circle cx={cx} cy={cy} r={14} fill="#fde68a" opacity={0.2} />
-
-        {/* krawędzie */}
+    const edgesLayer = useMemo(() => {
+      return (
+      <>
         {edges.map(e => {
           const a = positions.get(String(e.data.fromNid))
           const b = positions.get(String(e.data.toNid))
@@ -317,63 +391,246 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
                 stroke="#fff" strokeOpacity={0.25} strokeWidth={1} />
               {e.data.type && (
                 <text x={(a.x + b.x) / 2} y={(a.y + b.y) / 2 - 4}
-                  fontSize={9} fill="#cbd5e1" textAnchor="middle" opacity={0.7}>
+                  fontSize={9} fill="#cbd5e1" textAnchor="middle" opacity={0.7}
+                  style={{ pointerEvents: 'none' }}>
                   {String(e.data.type)}
                 </text>
               )}
             </g>
           )
         })}
+      </>
+      )
+    }, [edges, positions])
 
-        {/* planety + tytuły */}
+    const highlightLines = useMemo(() => {
+      if (!selectedLexId) return null
+      const nids = Array.from(highlightedNids)
+      const lines: any[] = []
+      for (let i = 0; i < nids.length; i++) {
+        for (let j = i + 1; j < nids.length; j++) {
+          const a = positions.get(nids[i]); const b = positions.get(nids[j])
+          if (!a || !b) continue
+          lines.push(
+            <line key={`hl-${i}-${j}`} x1={a.x} y1={a.y} x2={b.x} y2={b.y}
+              stroke="#fde68a" strokeOpacity={0.55} strokeWidth={1.5} />
+          )
+        }
+      }
+      return <>{lines}</>
+    }, [selectedLexId, highlightedNids, positions])
+
+    const planetsLayer = useMemo(() => {
+      return (
+      <>
         {nodes.map(n => {
           const nid = String(n.data.nodeId)
           const p = positions.get(nid); if (!p) return null
           const isSel = selectedNid === nid
+          const isHl = highlightedNids.has(nid)
+          const lexs = lexsByNid.get(nid) || []
           return (
-            <g key={n.id} style={{ cursor: 'pointer' }} onClick={() => selectByNid(treeId, nid)}>
-              {isSel && <circle cx={p.x} cy={p.y} r={22} fill={p.color} opacity={0.3} />}
+            <g key={n.id}
+               onMouseEnter={() => setHoverIfIdle(nid)}
+               onMouseLeave={() => setHoverIfIdle(null)}>
+              {(isSel || isHl) && (
+                <circle cx={p.x} cy={p.y} r={22}
+                  fill={isHl ? '#fde68a' : p.color} opacity={0.3} />
+              )}
               <circle cx={p.x} cy={p.y} r={isSel ? 14 : 10}
-                fill={p.color} stroke={isSel ? '#fff' : 'none'} strokeWidth={2} />
-              <text x={p.x} y={p.y + 26} textAnchor="middle"
-                fontSize={10} fill="#fff" opacity={isSel ? 1 : 0.85}>
-                {String(n.data.title)}
-              </text>
+                fill={p.color}
+                stroke={isSel || isHl ? '#fff' : 'none'} strokeWidth={2}
+                style={{ cursor: 'pointer' }}
+                onClick={() => tryClick(() => selectByNid(treeId, nid))} />
+
+              {lexs.map((lex, i) => {
+                const ang = (i / Math.max(lexs.length, 1)) * Math.PI * 2
+                const mx = p.x + Math.cos(ang) * 22
+                const my = p.y + Math.sin(ang) * 22
+                const mc = catColor(String(lex.data.category || ''))
+                const moonSel = selectedLexId === lex.id
+                const moonRel = relatedLexIds.has(lex.id)
+                return (
+                  <g key={lex.id}>
+                    {moonRel && <circle cx={mx} cy={my} r={6} fill="none" stroke="#fde68a" strokeOpacity={0.55} strokeWidth={1} />}
+                    <circle cx={mx} cy={my} r={moonSel ? 4.5 : 3}
+                      fill={mc} stroke={moonSel ? '#fff' : 'none'} strokeWidth={1}
+                      style={{ cursor: 'pointer' }}
+                      onClick={(e) => { e.stopPropagation(); tryClick(() => selectByLex(lex.id)) }}>
+                      <title>{String(lex.data.term)} · {String(lex.data.category || 'inne')}</title>
+                    </circle>
+                  </g>
+                )
+              })}
             </g>
           )
         })}
-      </svg>
+      </>
+      )
+    }, [nodes, positions, lexsByNid, selectedNid, selectedLexId, relatedLexIds, highlightedNids, treeId])
+
+    const labelsLayer = useMemo(() => {
+      const z = Math.max(zoomPct / 100, 1)
+      const fs = 10 / z
+      const sw = 3 / z
+      return (
+        <>
+          {nodes.map(n => {
+            const nid = String(n.data.nodeId)
+            const p = positions.get(nid); if (!p) return null
+            const isSel = selectedNid === nid
+            const isHl = highlightedNids.has(nid)
+            const isHov = hovered === nid
+            const op = labelOpacity(isSel || isHl, isHov)
+            if (op <= 0) return null
+            return (
+              <text key={n.id} x={p.x} y={p.y + 30} textAnchor="middle"
+                fontSize={fs} fill="#fff" opacity={op}
+                style={{ pointerEvents: 'none', paintOrder: 'stroke' }}
+                stroke="#0a0e1a" strokeWidth={sw} strokeOpacity={0.6}>
+                {String(n.data.title)}
+              </text>
+            )
+          })}
+        </>
+      )
+    }, [nodes, positions, selectedNid, highlightedNids, hovered, zoomPct])
+
+    return (
+      <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+        <svg ref={svgRef} viewBox="0 0 600 600" preserveAspectRatio="xMidYMid meet"
+          style={{ display: 'block', width: '100%', height: '100%', background: 'radial-gradient(ellipse at center, #1a2440 0%, #0a0e1a 100%)', borderRadius: 8, cursor: dragging ? 'grabbing' : 'grab', userSelect: 'none' }}
+          onWheel={onWheel}
+          onMouseDown={onMouseDown}
+          onMouseMove={onMouseMove}
+          onMouseUp={finishDrag}
+          onMouseLeave={finishDrag}>
+          <g ref={gRef}>
+            {orbitsLayer}
+            <circle cx={cx} cy={cy} r={6} fill="#fde68a" />
+            <circle cx={cx} cy={cy} r={14} fill="#fde68a" opacity={0.2} />
+            {edgesLayer}
+            {highlightLines}
+            {planetsLayer}
+            {labelsLayer}
+          </g>
+        </svg>
+
+        {/* HUD: zoom + reset */}
+        <div style={{ position: 'absolute', top: 8, right: 8, display: 'flex', gap: 6, alignItems: 'center', background: 'rgba(10,14,26,0.7)', padding: '4px 8px', borderRadius: 6, fontSize: 11, color: '#cbd5e1' }}>
+          <span>{zoomPct}%</span>
+          <ui.Button size="xs" color="ghost" outline onClick={reset}>
+            <Maximize2 size={12} /> Reset
+          </ui.Button>
+        </div>
+      </div>
     )
   }
 
-  // ── Centrum: formularze LUB widok kosmosu ─────────────────────────
   function CenterPanel() {
-    const { treeId, mode, selectedNid } = useNav()
-    const nodes = store.useChildren(treeId || '', 'node') as PostRecord[]
-
-    if (mode === 'add-node') return <NodeForm />
-    if (mode === 'edit-node' && selectedNid) {
-      const node = nodes.find(n => String(n.data.nodeId) === selectedNid)
-      if (node) return <NodeForm node={node} />
-    }
-    if (mode === 'add-edge') return <EdgeForm />
-
     return <ui.Page><GraphView /></ui.Page>
   }
 
-  // ── Prawy panel: szczegóły wybranego węzła + jego krawędzie ───────
+  // ── Prawy panel: szczegóły wybranego węzła LUB terminu ────────────
   function RightPanel() {
-    const { treeId, selectedNid, mode } = useNav()
+    const { treeId, selectedNid, selectedLexId } = useNav()
     const nodes = store.useChildren(treeId || '', 'node') as PostRecord[]
     const edges = store.useChildren(treeId || '', 'edge') as PostRecord[]
-    const node = nodes.find(n => String(n.data.nodeId) === selectedNid)
+    const lexicons = store.useChildren(treeId || '', 'lexicon') as PostRecord[]
+    const allLexNodes = store.usePosts('lexNode') as PostRecord[]
 
-    if (!node || mode !== 'browse') return <ui.Placeholder text="Wybierz węzeł" />
+    const lexById = useMemo(() => new Map(lexicons.map(l => [l.id, l])), [lexicons])
+    const nodeByNid = useMemo(() => {
+      const m = new Map<string, PostRecord>()
+      for (const n of nodes) m.set(String(n.data.nodeId), n)
+      return m
+    }, [nodes])
 
-    const titleOf = (nid: string) =>
-      String(nodes.find(n => String(n.data.nodeId) === nid)?.data.title ?? nid)
+    // Widok: TERMIN
+    if (selectedLexId) {
+      const lex = lexById.get(selectedLexId)
+      if (!lex) return <ui.Placeholder text="Termin nie istnieje" />
+      const myNidSet = new Set<string>()
+      for (const ln of allLexNodes) {
+        if (ln.parentId === selectedLexId) myNidSet.add(String(ln.data.nid))
+      }
+      const containingNodes = nodes.filter(n => myNidSet.has(String(n.data.nodeId)))
+
+      const counter = new Map<string, number>()
+      for (const ln of allLexNodes) {
+        if (ln.parentId === selectedLexId) continue
+        if (!myNidSet.has(String(ln.data.nid))) continue
+        counter.set(ln.parentId, (counter.get(ln.parentId) || 0) + 1)
+      }
+      const related: { lex: PostRecord; count: number }[] = []
+      for (const [lexId, count] of counter) {
+        const l = lexById.get(lexId)
+        if (l) related.push({ lex: l, count })
+      }
+      related.sort((a, b) => b.count - a.count)
+
+      return (
+        <ui.Page>
+          <ui.Stack>
+            <ui.Heading
+              title={String(lex.data.term)}
+              subtitle={String(lex.data.category || 'termin')}
+            />
+            <ui.Text size="sm">{String(lex.data.definition || '—')}</ui.Text>
+            <ui.Divider />
+            <ui.Cell label>Występuje w ({containingNodes.length})</ui.Cell>
+            {containingNodes.length === 0 && <ui.Text muted size="xs">brak</ui.Text>}
+            {containingNodes.map(n => (
+              <ui.ListItem key={n.id}
+                label={String(n.data.title)}
+                detail={String(n.data.branch || '')}
+                onClick={() => selectByNid(treeId!, String(n.data.nodeId))}
+              />
+            ))}
+            <ui.Divider />
+            <ui.Cell label>Powiązane terminy ({related.length})</ui.Cell>
+            {related.length === 0 && <ui.Text muted size="xs">brak współwystępujących</ui.Text>}
+            {related.map(r => (
+              <ui.ListItem key={r.lex.id}
+                label={
+                  <>
+                    <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 4, background: catColor(String(r.lex.data.category || '')), marginRight: 6 }} />
+                    {String(r.lex.data.term)}
+                  </>
+                }
+                detail={`${r.count} wspólnych węzłów · ${String(r.lex.data.category || '')}`}
+                onClick={() => selectByLex(r.lex.id)}
+              />
+            ))}
+          </ui.Stack>
+        </ui.Page>
+      )
+    }
+
+    // Widok: WĘZEŁ
+    const node = selectedNid ? nodeByNid.get(selectedNid) : undefined
+    if (!node) return <ui.Placeholder text="Wybierz węzeł lub termin" />
+
+    const myLexs: PostRecord[] = []
+    for (const ln of allLexNodes) {
+      if (String(ln.data.nid) !== selectedNid) continue
+      const l = lexById.get(ln.parentId)
+      if (l) myLexs.push(l)
+    }
+    const lexsByCat = new Map<string, PostRecord[]>()
+    for (const l of myLexs) {
+      const c = String(l.data.category || 'inne')
+      if (!lexsByCat.has(c)) lexsByCat.set(c, [])
+      lexsByCat.get(c)!.push(l)
+    }
+
+    const titleOf = (nid: string) => String(nodeByNid.get(nid)?.data.title ?? nid)
     const out = edges.filter(e => e.data.fromNid === selectedNid)
     const inc = edges.filter(e => e.data.toNid   === selectedNid)
+
+    const editInStudio = () => {
+      sdk.useHostStore.setState({ activeId: 'brainquest-studio' })
+    }
 
     return (
       <ui.Page>
@@ -385,9 +642,30 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
           </ui.Row>
 
           <ui.Row>
-            <ui.Button size="xs" color="primary"
-              onClick={() => useNav.setState({ mode: 'edit-node' })}>Edytuj</ui.Button>
+            <ui.Button size="xs" color="primary" onClick={editInStudio}>
+              <Edit3 size={12} /> Edytuj w Studio
+            </ui.Button>
           </ui.Row>
+
+          <ui.Divider />
+
+          <ui.Cell label>Terminy ({myLexs.length})</ui.Cell>
+          {myLexs.length === 0 && <ui.Text muted size="xs">brak</ui.Text>}
+          {Array.from(lexsByCat.entries()).map(([cat, ls]) => (
+            <React.Fragment key={cat}>
+              <ui.Row>
+                <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 4, background: catColor(cat) }} />
+                <ui.Text size="xs" muted>{cat} ({ls.length})</ui.Text>
+              </ui.Row>
+              {ls.map(l => (
+                <ui.ListItem key={l.id}
+                  label={String(l.data.term)}
+                  detail={String(l.data.definition || '').slice(0, 60)}
+                  onClick={() => selectByLex(l.id)}
+                />
+              ))}
+            </React.Fragment>
+          ))}
 
           <ui.Divider />
 
@@ -397,7 +675,6 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
             <ui.ListItem key={e.id}
               label={titleOf(String(e.data.toNid))}
               detail={e.data.type ? String(e.data.type) : undefined}
-              action={<ui.RemoveButton onClick={() => store.remove(e.id)} />}
               onClick={() => selectByNid(treeId!, String(e.data.toNid))}
             />
           ))}
@@ -410,7 +687,6 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
             <ui.ListItem key={e.id}
               label={titleOf(String(e.data.fromNid))}
               detail={e.data.type ? String(e.data.type) : undefined}
-              action={<ui.RemoveButton onClick={() => store.remove(e.id)} />}
               onClick={() => selectByNid(treeId!, String(e.data.fromNid))}
             />
           ))}
@@ -426,9 +702,9 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
   return {
     id: 'cosmos-bq',
     label: 'Kosmos BQ',
-    description: 'Kosmiczny widok grafu BQ — każda gałąź na własnej orbicie',
+    description: 'Kosmiczny widok grafu BQ — orbity gałęzi + księżyce terminów, układ d3-force',
     icon: Share2 || GitBranch,
-    version: '0.3.0',
+    version: '0.5.0',
   }
 }
 

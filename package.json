@@ -1,6 +1,6 @@
 {
   "name": "@obieg-zero/plugin-cosmos-bq",
-  "version": "0.3.1",
+  "version": "0.5.0",
   "description": "Kosmos BQ — kosmiczny widok grafu, każda gałąź na własnej orbicie",
   "private": true
 }
