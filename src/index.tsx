@@ -465,6 +465,8 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
       )
     }
 
+    // Uwaga: warstwy używające <Label> MUSZĄ mieć `z` w deps —
+    // bo Label czyta z z closure, a memoized JSX trzyma stary fs gdy z się zmieni.
     const orbitsLayer = useMemo(() => {
       return (
       <>
@@ -480,7 +482,7 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
         ))}
       </>
       )
-    }, [orbits, cx, cy])
+    }, [orbits, cx, cy, z])
 
     // Krawędzie strukturalne — focus mode (idle blade, hover wyróżnia)
     const edgesLayer = useMemo(() => {
@@ -511,7 +513,7 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
         })}
       </>
       )
-    }, [edges, positions, neighborSet, focusNid])
+    }, [edges, positions, neighborSet, focusNid, z])
 
     // Krawędzie kontekstowe (lex co-occurrence) — kolor relacji, count<2 ukryte idle
     const contextLayer = useMemo(() => {
@@ -543,7 +545,7 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
         })}
       </>
       )
-    }, [contextEdges, positions, neighborSet, focusNid])
+    }, [contextEdges, positions, neighborSet, focusNid, z])
 
     const highlightLines = useMemo(() => {
       if (!selectedLexId) return null

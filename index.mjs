@@ -1276,7 +1276,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
           "ol-" + o.key
         ))
       ] });
-    }, [orbits, cx, cy]);
+    }, [orbits, cx, cy, z]);
     const edgesLayer = useMemo(() => {
       return /* @__PURE__ */ jsx(Fragment, { children: edges.map((e) => {
         const fromNid = String(e.data.fromNid), toNid = String(e.data.toNid);
@@ -1312,7 +1312,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
           )
         ] }, e.id);
       }) });
-    }, [edges, positions, neighborSet, focusNid]);
+    }, [edges, positions, neighborSet, focusNid, z]);
     const contextLayer = useMemo(() => {
       return /* @__PURE__ */ jsx(Fragment, { children: contextEdges.map((ce, i) => {
         const a2 = positions.get(ce.from);
@@ -1350,7 +1350,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
           )
         ] }, `ctx-${i}`);
       }) });
-    }, [contextEdges, positions, neighborSet, focusNid]);
+    }, [contextEdges, positions, neighborSet, focusNid, z]);
     const highlightLines = useMemo(() => {
       if (!selectedLexId) return null;
       const nids = Array.from(highlightedNids);
