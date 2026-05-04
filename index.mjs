@@ -1207,6 +1207,28 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
     const isEdgeRelevant = (a2, b) => !!neighborSet && neighborSet.has(a2) && neighborSet.has(b);
     const showAllLabels = zoomPct >= 150;
     const labelOpacity = (sel, hov) => sel ? 1 : hov ? 0.95 : showAllLabels ? 0.8 : 0;
+    const Label = (p) => /* @__PURE__ */ jsx(
+      "text",
+      {
+        x: p.x,
+        y: p.y,
+        textAnchor: "middle",
+        fontSize: p.size ?? 10,
+        fill: p.color,
+        opacity: p.opacity ?? 1,
+        style: {
+          pointerEvents: "none",
+          paintOrder: "stroke",
+          letterSpacing: p.uppercase ? 0.6 : 0.2,
+          fontWeight: p.weight ?? 500,
+          textTransform: p.uppercase ? "uppercase" : "none"
+        },
+        stroke: "#0a0e1a",
+        strokeWidth: 2.5,
+        strokeOpacity: 0.85,
+        children: p.text
+      }
+    );
     const orbitsLayer = useMemo(() => {
       return /* @__PURE__ */ jsxs(Fragment, { children: [
         orbits.map((o) => /* @__PURE__ */ jsx(
@@ -1223,16 +1245,16 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
           "o-" + o.key
         )),
         orbits.map((o) => /* @__PURE__ */ jsx(
-          "text",
+          Label,
           {
             x: cx,
             y: cy - o.radius - 6,
-            textAnchor: "middle",
-            fontSize: 10,
-            fill: o.color,
+            text: o.label,
+            color: o.color,
+            size: 9,
             opacity: 0.85,
-            style: { pointerEvents: "none" },
-            children: o.label
+            weight: 600,
+            uppercase: true
           },
           "ol-" + o.key
         ))
@@ -1260,19 +1282,15 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
             }
           ),
           showLabel && /* @__PURE__ */ jsx(
-            "text",
+            Label,
             {
               x: (a2.x + b.x) / 2,
               y: (a2.y + b.y) / 2 - 4,
-              fontSize: 9,
-              fill: "#cbd5e1",
-              textAnchor: "middle",
-              opacity: 0.85,
-              style: { pointerEvents: "none", paintOrder: "stroke" },
-              stroke: "#0a0e1a",
-              strokeWidth: 2.5,
-              strokeOpacity: 0.9,
-              children: String(e.data.type)
+              text: String(e.data.type),
+              color: "#cbd5e1",
+              size: 9,
+              opacity: 0.9,
+              weight: 500
             }
           )
         ] }, e.id);
@@ -1301,23 +1319,16 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
               strokeLinecap: "round"
             }
           ),
-          showLabel && /* @__PURE__ */ jsxs(
-            "text",
+          showLabel && /* @__PURE__ */ jsx(
+            Label,
             {
               x: (a2.x + b.x) / 2,
               y: (a2.y + b.y) / 2 - 4,
-              fontSize: 8,
-              fill: ce.relColor,
-              textAnchor: "middle",
+              text: `${ce.relLabel}${ce.count > 1 ? ` ·${ce.count}` : ""}`,
+              color: ce.relColor,
+              size: 8,
               opacity: 0.95,
-              style: { pointerEvents: "none", paintOrder: "stroke", letterSpacing: 0.3 },
-              stroke: "#0a0e1a",
-              strokeWidth: 2.5,
-              strokeOpacity: 0.9,
-              children: [
-                ce.relLabel,
-                ce.count > 1 ? ` ·${ce.count}` : ""
-              ]
+              weight: 600
             }
           )
         ] }, `ctx-${i}`);
@@ -1434,7 +1445,6 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
     const labelsLayer = useMemo(() => {
       const z = Math.max(zoomPct / 100, 1);
       const fs = 10 / z;
-      const sw = 3 / z;
       return /* @__PURE__ */ jsx(Fragment, { children: nodes.map((n) => {
         const nid = String(n.data.nodeId);
         const p = positions.get(nid);
@@ -1445,19 +1455,15 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
         const op = labelOpacity(isSel || isHl, isHov);
         if (op <= 0) return null;
         return /* @__PURE__ */ jsx(
-          "text",
+          Label,
           {
             x: p.x,
             y: p.y + 30,
-            textAnchor: "middle",
-            fontSize: fs,
-            fill: "#fff",
+            text: String(n.data.title),
+            color: "#fff",
+            size: fs,
             opacity: op,
-            style: { pointerEvents: "none", paintOrder: "stroke" },
-            stroke: "#0a0e1a",
-            strokeWidth: sw,
-            strokeOpacity: 0.6,
-            children: String(n.data.title)
+            weight: 500
           },
           n.id
         );

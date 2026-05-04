@@ -424,6 +424,27 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
     const labelOpacity = (sel: boolean, hov: boolean) =>
       sel ? 1 : hov ? 0.95 : showAllLabels ? 0.8 : 0
 
+    // Spójny renderer labels — każdy tekst SVG przez to. Outline ciemny zawsze (czytelność na każdym tle).
+    const Label = (p: {
+      x: number; y: number; text: string; color: string;
+      size?: number; opacity?: number; weight?: number; uppercase?: boolean;
+    }) => (
+      <text x={p.x} y={p.y} textAnchor="middle"
+        fontSize={p.size ?? 10}
+        fill={p.color}
+        opacity={p.opacity ?? 1}
+        style={{
+          pointerEvents: 'none',
+          paintOrder: 'stroke',
+          letterSpacing: p.uppercase ? 0.6 : 0.2,
+          fontWeight: p.weight ?? 500,
+          textTransform: p.uppercase ? 'uppercase' : 'none',
+        }}
+        stroke="#0a0e1a" strokeWidth={2.5} strokeOpacity={0.85}>
+        {p.text}
+      </text>
+    )
+
     const orbitsLayer = useMemo(() => {
       return (
       <>
@@ -432,11 +453,10 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
             fill="none" stroke={o.color} strokeOpacity={0.35} strokeDasharray="3 5" />
         ))}
         {orbits.map(o => (
-          <text key={'ol-' + o.key} x={cx} y={cy - o.radius - 6}
-            textAnchor="middle" fontSize={10} fill={o.color} opacity={0.85}
-            style={{ pointerEvents: 'none' }}>
-            {o.label}
-          </text>
+          <Label key={'ol-' + o.key}
+            x={cx} y={cy - o.radius - 6}
+            text={o.label} color={o.color}
+            size={9} opacity={0.85} weight={600} uppercase />
         ))}
       </>
       )
@@ -461,12 +481,9 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
               <line x1={a.x} y1={a.y} x2={b.x} y2={b.y}
                 stroke="#fff" strokeOpacity={op} strokeWidth={op > 0.3 ? 1.5 : 1} />
               {showLabel && (
-                <text x={(a.x + b.x) / 2} y={(a.y + b.y) / 2 - 4}
-                  fontSize={9} fill="#cbd5e1" textAnchor="middle" opacity={0.85}
-                  style={{ pointerEvents: 'none', paintOrder: 'stroke' }}
-                  stroke="#0a0e1a" strokeWidth={2.5} strokeOpacity={0.9}>
-                  {String(e.data.type)}
-                </text>
+                <Label x={(a.x + b.x) / 2} y={(a.y + b.y) / 2 - 4}
+                  text={String(e.data.type)} color="#cbd5e1"
+                  size={9} opacity={0.9} weight={500} />
               )}
             </g>
           )
@@ -496,12 +513,9 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
                 stroke={ce.relColor} strokeOpacity={op}
                 strokeWidth={w} strokeLinecap="round" />
               {showLabel && (
-                <text x={(a.x + b.x) / 2} y={(a.y + b.y) / 2 - 4}
-                  fontSize={8} fill={ce.relColor} textAnchor="middle" opacity={0.95}
-                  style={{ pointerEvents: 'none', paintOrder: 'stroke', letterSpacing: 0.3 }}
-                  stroke="#0a0e1a" strokeWidth={2.5} strokeOpacity={0.9}>
-                  {ce.relLabel}{ce.count > 1 ? ` ·${ce.count}` : ''}
-                </text>
+                <Label x={(a.x + b.x) / 2} y={(a.y + b.y) / 2 - 4}
+                  text={`${ce.relLabel}${ce.count > 1 ? ` ·${ce.count}` : ''}`}
+                  color={ce.relColor} size={8} opacity={0.95} weight={600} />
               )}
             </g>
           )
@@ -581,7 +595,6 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
     const labelsLayer = useMemo(() => {
       const z = Math.max(zoomPct / 100, 1)
       const fs = 10 / z
-      const sw = 3 / z
       return (
         <>
           {nodes.map(n => {
@@ -593,12 +606,10 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
             const op = labelOpacity(isSel || isHl, isHov)
             if (op <= 0) return null
             return (
-              <text key={n.id} x={p.x} y={p.y + 30} textAnchor="middle"
-                fontSize={fs} fill="#fff" opacity={op}
-                style={{ pointerEvents: 'none', paintOrder: 'stroke' }}
-                stroke="#0a0e1a" strokeWidth={sw} strokeOpacity={0.6}>
-                {String(n.data.title)}
-              </text>
+              <Label key={n.id}
+                x={p.x} y={p.y + 30}
+                text={String(n.data.title)} color="#fff"
+                size={fs} opacity={op} weight={500} />
             )
           })}
         </>
