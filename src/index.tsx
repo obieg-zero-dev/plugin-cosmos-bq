@@ -811,6 +811,53 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
   }
 
   // ── Prawy panel: szczegóły wybranego węzła LUB terminu ────────────
+  // Helper: lista terminów (id + matchers nazwa + odmiany) dla ui.Markdown
+  const buildTerms = (lexs: PostRecord[], formMap: Map<string, string[]>) =>
+    lexs.map(lex => ({
+      id: lex.id,
+      matchers: [String(lex.data.term), ...(formMap.get(lex.id) || [])],
+    }))
+
+  // Slajdy węzła z markdownem + podświetlonymi terminami + nawigacja
+  function SlidesViewer({ node, myLexs }: { node: PostRecord; myLexs: PostRecord[] }) {
+    const allContent = store.useChildren(node.id, 'content') as PostRecord[]
+    const allForms = store.usePosts('form') as PostRecord[]
+    const slides = useMemo(() => allContent.filter(c => String(c.data.contentType) !== 'quiz'), [allContent])
+    const formMap = useMemo(() => {
+      const m = new Map<string, string[]>()
+      for (const f of allForms) {
+        const lid = f.parentId; if (!lid) continue
+        const a = m.get(lid) || []; a.push(String(f.data.value)); m.set(lid, a)
+      }
+      return m
+    }, [allForms])
+    const terms = useMemo(() => buildTerms(myLexs, formMap), [myLexs, formMap])
+
+    const [idx, setIdx] = useState(0)
+    useEffect(() => { setIdx(0) }, [node.id])
+    const safeIdx = Math.min(idx, Math.max(0, slides.length - 1))
+    const slide = slides[safeIdx]
+
+    if (slides.length === 0) {
+      return <ui.Text size="xs" muted>Brak treści dla tego węzła.</ui.Text>
+    }
+    return (
+      <ui.Stack gap="sm">
+        <ui.Row justify="between">
+          <ui.Text size="xs" muted>Slajd {safeIdx + 1} / {slides.length}</ui.Text>
+          <ui.Row>
+            <ui.Button size="xs" outline disabled={safeIdx <= 0}
+              onClick={() => setIdx(i => Math.max(0, i - 1))}>‹</ui.Button>
+            <ui.Button size="xs" outline disabled={safeIdx >= slides.length - 1}
+              onClick={() => setIdx(i => Math.min(slides.length - 1, i + 1))}>›</ui.Button>
+          </ui.Row>
+        </ui.Row>
+        <ui.Markdown text={String(slide?.data.text || '')}
+          terms={terms} onTermClick={(id) => selectByLex(id)} />
+      </ui.Stack>
+    )
+  }
+
   function RightPanel() {
     const { treeId, selectedNid, selectedLexId } = useNav()
     const nodes = store.useChildren(treeId || '', 'node') as PostRecord[]
@@ -918,6 +965,10 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
               return lbl ? <ui.Text size="xs" muted>{lbl}</ui.Text> : null
             })()}
           </ui.Row>
+
+          <ui.Divider />
+
+          <SlidesViewer node={node} myLexs={myLexs} />
 
           <ui.Divider />
 

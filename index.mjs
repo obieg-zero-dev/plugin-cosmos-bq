@@ -1615,6 +1615,76 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
   function CenterPanel() {
     return /* @__PURE__ */ jsx(ui.Page, { children: /* @__PURE__ */ jsx(GraphView, {}) });
   }
+  const buildTerms = (lexs, formMap) => lexs.map((lex) => ({
+    id: lex.id,
+    matchers: [String(lex.data.term), ...formMap.get(lex.id) || []]
+  }));
+  function SlidesViewer({ node, myLexs }) {
+    const allContent = store.useChildren(node.id, "content");
+    const allForms = store.usePosts("form");
+    const slides = useMemo(() => allContent.filter((c2) => String(c2.data.contentType) !== "quiz"), [allContent]);
+    const formMap = useMemo(() => {
+      const m2 = /* @__PURE__ */ new Map();
+      for (const f of allForms) {
+        const lid = f.parentId;
+        if (!lid) continue;
+        const a2 = m2.get(lid) || [];
+        a2.push(String(f.data.value));
+        m2.set(lid, a2);
+      }
+      return m2;
+    }, [allForms]);
+    const terms = useMemo(() => buildTerms(myLexs, formMap), [myLexs, formMap]);
+    const [idx, setIdx] = useState(0);
+    useEffect(() => {
+      setIdx(0);
+    }, [node.id]);
+    const safeIdx = Math.min(idx, Math.max(0, slides.length - 1));
+    const slide = slides[safeIdx];
+    if (slides.length === 0) {
+      return /* @__PURE__ */ jsx(ui.Text, { size: "xs", muted: true, children: "Brak treści dla tego węzła." });
+    }
+    return /* @__PURE__ */ jsxs(ui.Stack, { gap: "sm", children: [
+      /* @__PURE__ */ jsxs(ui.Row, { justify: "between", children: [
+        /* @__PURE__ */ jsxs(ui.Text, { size: "xs", muted: true, children: [
+          "Slajd ",
+          safeIdx + 1,
+          " / ",
+          slides.length
+        ] }),
+        /* @__PURE__ */ jsxs(ui.Row, { children: [
+          /* @__PURE__ */ jsx(
+            ui.Button,
+            {
+              size: "xs",
+              outline: true,
+              disabled: safeIdx <= 0,
+              onClick: () => setIdx((i) => Math.max(0, i - 1)),
+              children: "‹"
+            }
+          ),
+          /* @__PURE__ */ jsx(
+            ui.Button,
+            {
+              size: "xs",
+              outline: true,
+              disabled: safeIdx >= slides.length - 1,
+              onClick: () => setIdx((i) => Math.min(slides.length - 1, i + 1)),
+              children: "›"
+            }
+          )
+        ] })
+      ] }),
+      /* @__PURE__ */ jsx(
+        ui.Markdown,
+        {
+          text: String((slide == null ? void 0 : slide.data.text) || ""),
+          terms,
+          onTermClick: (id) => selectByLex(id)
+        }
+      )
+    ] });
+  }
   function RightPanel() {
     const { treeId, selectedNid, selectedLexId } = useNav();
     const nodes = store.useChildren(treeId || "", "node");
@@ -1722,6 +1792,8 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
           return lbl ? /* @__PURE__ */ jsx(ui.Text, { size: "xs", muted: true, children: lbl }) : null;
         })()
       ] }),
+      /* @__PURE__ */ jsx(ui.Divider, {}),
+      /* @__PURE__ */ jsx(SlidesViewer, { node, myLexs }),
       /* @__PURE__ */ jsx(ui.Divider, {}),
       /* @__PURE__ */ jsxs(ui.Cell, { label: true, children: [
         "Terminy (",
