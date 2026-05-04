@@ -179,6 +179,16 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
       return set
     }, [nodes])
 
+    // Promień planety per nid — potrzebny do offsetu strzałki (żeby nie wchodziła w planetę)
+    const planetRByNid = useMemo(() => {
+      const m = new Map<string, number>()
+      for (const n of nodes) {
+        const slides = slidesByNodeId.get(n.id) || 0
+        m.set(String(n.data.nodeId), Math.min(8 + slides * 1.0, 18))
+      }
+      return m
+    }, [nodes, slidesByNodeId])
+
     const { lexsByNid, nidsByLex } = useMemo(() => {
       const lexById = new Map(lexicons.map(l => [l.id, l]))
       const lexsByNid = new Map<string, PostRecord[]>()
@@ -310,6 +320,7 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
       lexsByNid={lexsByNid}
       slidesByNodeId={slidesByNodeId}
       contextNids={contextNids}
+      planetRByNid={planetRByNid}
       selectedNid={selectedNid} selectedLexId={selectedLexId}
       relatedLexIds={relatedLexIds}
       highlightedNids={highlightedNids}
@@ -328,13 +339,14 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
     lexsByNid: Map<string, PostRecord[]>
     slidesByNodeId: Map<string, number>
     contextNids: Set<string>
+    planetRByNid: Map<string, number>
     selectedNid: string | null
     selectedLexId: string | null
     relatedLexIds: Set<string>
     highlightedNids: Set<string>
     treeId: string
   }) {
-    const { cx, cy, orbits, positions, nodes, edges, contextEdges, lexsByNid, slidesByNodeId, contextNids,
+    const { cx, cy, orbits, positions, nodes, edges, contextEdges, lexsByNid, slidesByNodeId, contextNids, planetRByNid,
             selectedNid, selectedLexId, relatedLexIds, highlightedNids, treeId } = props
 
     const svgRef = useRef<SVGSVGElement>(null)
@@ -513,11 +525,22 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
           const showLabel = e.data.type && !!neighborSet && isEdgeFocused(fromNid, toNid)
           // Krawędź dotykająca węzła kontekstowego → przerywana
           const dashed = contextNids.has(fromNid) || contextNids.has(toNid)
+          // Edge z TYPEM (np. progression, kontrast) = główna kierunkowa — grubsza + strzałka.
+          // Edge bez type = poboczna luźna relacja, cienka bez strzałki.
+          const hasType = !!e.data.type
+          const sw = hasType ? (op > 0.3 ? 2 : 1.5) : (op > 0.3 ? 1.5 : 1)
+          // Offset końca linii o promień planety target — strzałka tuż przy krawędzi, nie w środku
+          const targetR = planetRByNid.get(toNid) || 8
+          const dx = b.x - a.x, dy = b.y - a.y
+          const d = Math.hypot(dx, dy) || 1
+          const x2 = hasType ? b.x - (dx / d) * (targetR + 3) : b.x
+          const y2 = hasType ? b.y - (dy / d) * (targetR + 3) : b.y
           return (
             <g key={e.id}>
-              <line x1={a.x} y1={a.y} x2={b.x} y2={b.y}
-                stroke="#fff" strokeOpacity={op} strokeWidth={op > 0.3 ? 1.5 : 1}
-                strokeDasharray={dashed ? '4 3' : undefined} />
+              <line x1={a.x} y1={a.y} x2={x2} y2={y2}
+                stroke="#fff" strokeOpacity={op} strokeWidth={sw}
+                strokeDasharray={dashed ? '4 3' : undefined}
+                markerEnd={hasType ? 'url(#cos-arrow)' : undefined} />
               {showLabel && (
                 <Label x={(a.x + b.x) / 2} y={(a.y + b.y) / 2 - 4}
                   text={String(e.data.type)} color="#cbd5e1"
@@ -528,7 +551,7 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
         })}
       </>
       )
-    }, [edges, positions, neighborSet, focusNid, z, contextNids])
+    }, [edges, positions, neighborSet, focusNid, z, contextNids, planetRByNid])
 
     // Krawędzie kontekstowe (lex co-occurrence) — kolor relacji, count<2 ukryte idle
     const contextLayer = useMemo(() => {
@@ -684,6 +707,13 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
           onMouseUp={finishDrag}
           onMouseLeave={finishDrag}
           onClick={onBackgroundClick}>
+          <defs>
+            <marker id="cos-arrow" viewBox="-5 -5 10 10"
+              refX="0" refY="0" markerWidth="5" markerHeight="5"
+              orient="auto" markerUnits="strokeWidth">
+              <path d="M-4,-4 L0,0 L-4,4 Z" fill="#fff" opacity="0.85" />
+            </marker>
+          </defs>
           <g ref={gRef}>
             {orbitsLayer}
             <circle cx={cx} cy={cy} r={6} fill="#fde68a" />

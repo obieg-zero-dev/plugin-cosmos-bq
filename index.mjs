@@ -975,6 +975,14 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
       }
       return set2;
     }, [nodes]);
+    const planetRByNid = useMemo(() => {
+      const m2 = /* @__PURE__ */ new Map();
+      for (const n of nodes) {
+        const slides = slidesByNodeId.get(n.id) || 0;
+        m2.set(String(n.data.nodeId), Math.min(8 + slides * 1, 18));
+      }
+      return m2;
+    }, [nodes, slidesByNodeId]);
     const { lexsByNid, nidsByLex } = useMemo(() => {
       const lexById = new Map(lexicons.map((l) => [l.id, l]));
       const lexsByNid2 = /* @__PURE__ */ new Map();
@@ -1097,6 +1105,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
         lexsByNid,
         slidesByNodeId,
         contextNids,
+        planetRByNid,
         selectedNid,
         selectedLexId,
         relatedLexIds,
@@ -1117,6 +1126,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
       lexsByNid,
       slidesByNodeId,
       contextNids,
+      planetRByNid,
       selectedNid,
       selectedLexId,
       relatedLexIds,
@@ -1296,18 +1306,26 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
         const op = !neighborSet ? 0.18 : isEdgeFocused(fromNid, toNid) ? 0.7 : isEdgeRelevant(fromNid, toNid) ? 0.3 : 0.02;
         const showLabel = e.data.type && !!neighborSet && isEdgeFocused(fromNid, toNid);
         const dashed = contextNids.has(fromNid) || contextNids.has(toNid);
+        const hasType = !!e.data.type;
+        const sw = hasType ? op > 0.3 ? 2 : 1.5 : op > 0.3 ? 1.5 : 1;
+        const targetR = planetRByNid.get(toNid) || 8;
+        const dx = b.x - a2.x, dy = b.y - a2.y;
+        const d = Math.hypot(dx, dy) || 1;
+        const x2 = hasType ? b.x - dx / d * (targetR + 3) : b.x;
+        const y2 = hasType ? b.y - dy / d * (targetR + 3) : b.y;
         return /* @__PURE__ */ jsxs("g", { children: [
           /* @__PURE__ */ jsx(
             "line",
             {
               x1: a2.x,
               y1: a2.y,
-              x2: b.x,
-              y2: b.y,
+              x2,
+              y2,
               stroke: "#fff",
               strokeOpacity: op,
-              strokeWidth: op > 0.3 ? 1.5 : 1,
-              strokeDasharray: dashed ? "4 3" : void 0
+              strokeWidth: sw,
+              strokeDasharray: dashed ? "4 3" : void 0,
+              markerEnd: hasType ? "url(#cos-arrow)" : void 0
             }
           ),
           showLabel && /* @__PURE__ */ jsx(
@@ -1324,7 +1342,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
           )
         ] }, e.id);
       }) });
-    }, [edges, positions, neighborSet, focusNid, z, contextNids]);
+    }, [edges, positions, neighborSet, focusNid, z, contextNids, planetRByNid]);
     const contextLayer = useMemo(() => {
       return /* @__PURE__ */ jsx(Fragment, { children: contextEdges.map((ce, i) => {
         const a2 = positions.get(ce.from);
@@ -1521,7 +1539,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
       }) });
     }, [nodes, positions, slidesByNodeId, selectedNid, highlightedNids, hovered, zoomPct]);
     return /* @__PURE__ */ jsxs("div", { style: { position: "relative", width: "100%", height: "100%" }, children: [
-      /* @__PURE__ */ jsx(
+      /* @__PURE__ */ jsxs(
         "svg",
         {
           ref: svgRef,
@@ -1534,16 +1552,32 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
           onMouseUp: finishDrag,
           onMouseLeave: finishDrag,
           onClick: onBackgroundClick,
-          children: /* @__PURE__ */ jsxs("g", { ref: gRef, children: [
-            orbitsLayer,
-            /* @__PURE__ */ jsx("circle", { cx, cy, r: 6, fill: "#fde68a" }),
-            /* @__PURE__ */ jsx("circle", { cx, cy, r: 14, fill: "#fde68a", opacity: 0.2 }),
-            contextLayer,
-            edgesLayer,
-            highlightLines,
-            planetsLayer,
-            labelsLayer
-          ] })
+          children: [
+            /* @__PURE__ */ jsx("defs", { children: /* @__PURE__ */ jsx(
+              "marker",
+              {
+                id: "cos-arrow",
+                viewBox: "-5 -5 10 10",
+                refX: "0",
+                refY: "0",
+                markerWidth: "5",
+                markerHeight: "5",
+                orient: "auto",
+                markerUnits: "strokeWidth",
+                children: /* @__PURE__ */ jsx("path", { d: "M-4,-4 L0,0 L-4,4 Z", fill: "#fff", opacity: "0.85" })
+              }
+            ) }),
+            /* @__PURE__ */ jsxs("g", { ref: gRef, children: [
+              orbitsLayer,
+              /* @__PURE__ */ jsx("circle", { cx, cy, r: 6, fill: "#fde68a" }),
+              /* @__PURE__ */ jsx("circle", { cx, cy, r: 14, fill: "#fde68a", opacity: 0.2 }),
+              contextLayer,
+              edgesLayer,
+              highlightLines,
+              planetsLayer,
+              labelsLayer
+            ] })
+          ]
         }
       ),
       /* @__PURE__ */ jsxs("div", { style: { position: "absolute", top: 8, right: 8, display: "flex", gap: 6, alignItems: "center", background: "rgba(10,14,26,0.7)", padding: "4px 8px", borderRadius: 6, fontSize: 11, color: "#cbd5e1" }, children: [
