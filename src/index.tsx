@@ -80,6 +80,21 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
     <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 4, background: color, marginRight: 6 }} />
   )
 
+  // Tier ma różną semantykę zależnie od gałęzi:
+  //   epoki    → kolejność chronologiczna ("epoka 5")
+  //   lektury  → poziom trudności ("poziom 2")
+  //   kontekst → bez znaczenia (ukryj)
+  //   inne     → fallback "tier N"
+  const tierLabel = (branchKey: string, tier: unknown): string => {
+    const n = String(tier ?? '').trim()
+    if (!n || n === '0') return ''
+    const k = String(branchKey || '').toLowerCase()
+    if (k.startsWith('epok')) return `epoka ${n}`
+    if (k.startsWith('lektur')) return `poziom ${n}`
+    if (k.startsWith(CONTEXT_BRANCH_PREFIX)) return ''
+    return `tier ${n}`
+  }
+
   // ── Lewy panel: drzewko węzłów z wcięciami po gałęzi/tier ─────────
   function LeftPanel() {
     const trees = store.usePosts('tree') as PostRecord[]
@@ -145,7 +160,7 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
                     <ui.ListItem key={n.id}
                       active={selectedNid === nid}
                       label={String(n.data.title)}
-                      detail={`tier ${n.data.tier ?? '?'}`}
+                      detail={tierLabel(g.key, n.data.tier)}
                       onClick={() => selectByNid(treeId!, nid)}
                     />
                   )
@@ -898,7 +913,10 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
           <ui.Heading title={String(node.data.title)} subtitle={`#${selectedNid}`} />
           <ui.Row>
             {node.data.branch ? <ui.Badge>{String(node.data.branch)}</ui.Badge> : null}
-            {node.data.tier ? <ui.Text size="xs" muted>Poziom {String(node.data.tier)}</ui.Text> : null}
+            {(() => {
+              const lbl = tierLabel(String(node.data.branch || ''), node.data.tier)
+              return lbl ? <ui.Text size="xs" muted>{lbl}</ui.Text> : null
+            })()}
           </ui.Row>
 
           <ui.Divider />

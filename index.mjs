@@ -876,6 +876,15 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
     });
   };
   const branchOf = (n) => String(n.data.branch || "") || NO_BRANCH;
+  const tierLabel = (branchKey, tier) => {
+    const n = String(tier ?? "").trim();
+    if (!n || n === "0") return "";
+    const k = String(branchKey || "").toLowerCase();
+    if (k.startsWith("epok")) return `epoka ${n}`;
+    if (k.startsWith("lektur")) return `poziom ${n}`;
+    if (k.startsWith(CONTEXT_BRANCH_PREFIX)) return "";
+    return `tier ${n}`;
+  };
   function LeftPanel() {
     const trees = store.usePosts("tree");
     const { treeId, selectedNid } = useNav();
@@ -942,7 +951,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
                 {
                   active: selectedNid === nid,
                   label: String(n.data.title),
-                  detail: `tier ${n.data.tier ?? "?"}`,
+                  detail: tierLabel(g.key, n.data.tier),
                   onClick: () => selectByNid(treeId, nid)
                 },
                 n.id
@@ -1708,10 +1717,10 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
       /* @__PURE__ */ jsx(ui.Heading, { title: String(node.data.title), subtitle: `#${selectedNid}` }),
       /* @__PURE__ */ jsxs(ui.Row, { children: [
         node.data.branch ? /* @__PURE__ */ jsx(ui.Badge, { children: String(node.data.branch) }) : null,
-        node.data.tier ? /* @__PURE__ */ jsxs(ui.Text, { size: "xs", muted: true, children: [
-          "Poziom ",
-          String(node.data.tier)
-        ] }) : null
+        (() => {
+          const lbl = tierLabel(String(node.data.branch || ""), node.data.tier);
+          return lbl ? /* @__PURE__ */ jsx(ui.Text, { size: "xs", muted: true, children: lbl }) : null;
+        })()
       ] }),
       /* @__PURE__ */ jsx(ui.Divider, {}),
       /* @__PURE__ */ jsxs(ui.Cell, { label: true, children: [
