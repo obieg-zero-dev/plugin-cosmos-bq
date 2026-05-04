@@ -958,6 +958,15 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
     const relTypes = store.useChildren(treeId || "", "relType");
     const lexicons = store.useChildren(treeId || "", "lexicon");
     const allLexNodes = store.usePosts("lexNode");
+    const allContent = store.usePosts("content");
+    const slidesByNodeId = useMemo(() => {
+      const m2 = /* @__PURE__ */ new Map();
+      for (const c2 of allContent) {
+        if (String(c2.data.contentType) === "quiz") continue;
+        m2.set(c2.parentId, (m2.get(c2.parentId) || 0) + 1);
+      }
+      return m2;
+    }, [allContent]);
     const { lexsByNid, nidsByLex } = useMemo(() => {
       const lexById = new Map(lexicons.map((l) => [l.id, l]));
       const lexsByNid2 = /* @__PURE__ */ new Map();
@@ -1078,6 +1087,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
         edges,
         contextEdges,
         lexsByNid,
+        slidesByNodeId,
         selectedNid,
         selectedLexId,
         relatedLexIds,
@@ -1096,6 +1106,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
       edges,
       contextEdges,
       lexsByNid,
+      slidesByNodeId,
       selectedNid,
       selectedLexId,
       relatedLexIds,
@@ -1377,6 +1388,13 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
         const isHl = highlightedNids.has(nid);
         const lexs = lexsByNid.get(nid) || [];
         const dimmed = isNodeDimmed(nid);
+        const slides = slidesByNodeId.get(n.id) || 0;
+        const baseR = Math.min(8 + slides * 1, 18);
+        const r = isSel ? baseR + 4 : baseR;
+        const moonOrbitR = r + 8;
+        const haloR = r + 8;
+        const tier = String(n.data.tier ?? "");
+        const tierFs = Math.max(7, baseR * 0.85) / z;
         return /* @__PURE__ */ jsxs(
           "g",
           {
@@ -1389,7 +1407,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
                 {
                   cx: p.x,
                   cy: p.y,
-                  r: 22,
+                  r: haloR,
                   fill: isHl ? "#fde68a" : p.color,
                   opacity: 0.3
                 }
@@ -1399,7 +1417,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
                 {
                   cx: p.x,
                   cy: p.y,
-                  r: isSel ? 14 : 10,
+                  r,
                   fill: p.color,
                   stroke: isSel || isHl ? "#fff" : "none",
                   strokeWidth: 2,
@@ -1410,21 +1428,34 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
                   }
                 }
               ),
+              tier && /* @__PURE__ */ jsx(
+                "text",
+                {
+                  x: p.x,
+                  y: p.y + tierFs * 0.35,
+                  textAnchor: "middle",
+                  fontSize: tierFs,
+                  fill: "#0a0e1a",
+                  fontWeight: 700,
+                  style: { pointerEvents: "none" },
+                  children: tier
+                }
+              ),
               lexs.map((lex, i) => {
                 const ang = i / Math.max(lexs.length, 1) * Math.PI * 2;
-                const mx = p.x + Math.cos(ang) * 22;
-                const my = p.y + Math.sin(ang) * 22;
+                const mx = p.x + Math.cos(ang) * moonOrbitR;
+                const my = p.y + Math.sin(ang) * moonOrbitR;
                 const mc = catColor(String(lex.data.category || ""));
                 const moonSel = selectedLexId === lex.id;
                 const moonRel = relatedLexIds.has(lex.id);
                 return /* @__PURE__ */ jsxs("g", { children: [
-                  moonRel && /* @__PURE__ */ jsx("circle", { cx: mx, cy: my, r: 6, fill: "none", stroke: "#fde68a", strokeOpacity: 0.55, strokeWidth: 1 }),
+                  moonRel && /* @__PURE__ */ jsx("circle", { cx: mx, cy: my, r: 5, fill: "none", stroke: "#fde68a", strokeOpacity: 0.55, strokeWidth: 1 }),
                   /* @__PURE__ */ jsx(
                     "circle",
                     {
                       cx: mx,
                       cy: my,
-                      r: moonSel ? 4.5 : 3,
+                      r: moonSel ? 4 : 2.6,
                       fill: mc,
                       stroke: moonSel ? "#fff" : "none",
                       strokeWidth: 1,
@@ -1447,7 +1478,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
           n.id
         );
       }) });
-    }, [nodes, positions, lexsByNid, selectedNid, selectedLexId, relatedLexIds, highlightedNids, treeId, neighborSet]);
+    }, [nodes, positions, lexsByNid, slidesByNodeId, selectedNid, selectedLexId, relatedLexIds, highlightedNids, treeId, neighborSet, z]);
     const labelsLayer = useMemo(() => {
       return /* @__PURE__ */ jsx(Fragment, { children: nodes.map((n) => {
         const nid = String(n.data.nodeId);
@@ -1458,11 +1489,13 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
         const isHov = hovered === nid;
         const op = labelOpacity(isSel || isHl, isHov);
         if (op <= 0) return null;
+        const slides = slidesByNodeId.get(n.id) || 0;
+        const baseR = Math.min(8 + slides * 1, 18);
         return /* @__PURE__ */ jsx(
           Label,
           {
             x: p.x,
-            y: p.y + 30,
+            y: p.y + baseR + 14,
             text: String(n.data.title),
             color: "#fff",
             size: 10,
@@ -1472,7 +1505,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
           n.id
         );
       }) });
-    }, [nodes, positions, selectedNid, highlightedNids, hovered, zoomPct]);
+    }, [nodes, positions, slidesByNodeId, selectedNid, highlightedNids, hovered, zoomPct]);
     return /* @__PURE__ */ jsxs("div", { style: { position: "relative", width: "100%", height: "100%" }, children: [
       /* @__PURE__ */ jsx(
         "svg",

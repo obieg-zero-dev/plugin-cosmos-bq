@@ -157,6 +157,17 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
     const relTypes = store.useChildren(treeId || '', 'relType') as PostRecord[]
     const lexicons = store.useChildren(treeId || '', 'lexicon') as PostRecord[]
     const allLexNodes = store.usePosts('lexNode') as PostRecord[]
+    const allContent = store.usePosts('content') as PostRecord[]
+
+    // Liczba slajdów per węzeł (bez quizów — te są bonusem)
+    const slidesByNodeId = useMemo(() => {
+      const m = new Map<string, number>()
+      for (const c of allContent) {
+        if (String(c.data.contentType) === 'quiz') continue
+        m.set(c.parentId, (m.get(c.parentId) || 0) + 1)
+      }
+      return m
+    }, [allContent])
 
     const { lexsByNid, nidsByLex } = useMemo(() => {
       const lexById = new Map(lexicons.map(l => [l.id, l]))
@@ -287,6 +298,7 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
       nodes={nodes} edges={edges}
       contextEdges={contextEdges}
       lexsByNid={lexsByNid}
+      slidesByNodeId={slidesByNodeId}
       selectedNid={selectedNid} selectedLexId={selectedLexId}
       relatedLexIds={relatedLexIds}
       highlightedNids={highlightedNids}
@@ -303,13 +315,14 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
     edges: PostRecord[]
     contextEdges: { from: string; to: string; relation: string; relLabel: string; relColor: string; count: number; strength: number }[]
     lexsByNid: Map<string, PostRecord[]>
+    slidesByNodeId: Map<string, number>
     selectedNid: string | null
     selectedLexId: string | null
     relatedLexIds: Set<string>
     highlightedNids: Set<string>
     treeId: string
   }) {
-    const { cx, cy, orbits, positions, nodes, edges, contextEdges, lexsByNid,
+    const { cx, cy, orbits, positions, nodes, edges, contextEdges, lexsByNid, slidesByNodeId,
             selectedNid, selectedLexId, relatedLexIds, highlightedNids, treeId } = props
 
     const svgRef = useRef<SVGSVGElement>(null)
@@ -558,32 +571,49 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
           const isHl = highlightedNids.has(nid)
           const lexs = lexsByNid.get(nid) || []
           const dimmed = isNodeDimmed(nid)
+          // Rozmiar planety ∝ liczba slajdów: 0=8px, 1-3=10-12, 4-9=13-16, 10+=18 max
+          const slides = slidesByNodeId.get(n.id) || 0
+          const baseR = Math.min(8 + slides * 1.0, 18)
+          const r = isSel ? baseR + 4 : baseR
+          const moonOrbitR = r + 8
+          const haloR = r + 8
+          const tier = String(n.data.tier ?? '')
+          // Numerek tier: jasny na ciemnej planecie, anti-scale przez Label (no outline bo na planecie)
+          const tierFs = Math.max(7, baseR * 0.85) / z
           return (
             <g key={n.id}
                onMouseEnter={() => setHoverIfIdle(nid)}
                onMouseLeave={() => setHoverIfIdle(null)}
                style={{ opacity: dimmed ? 0.25 : 1, transition: 'opacity 150ms' }}>
               {(isSel || isHl) && (
-                <circle cx={p.x} cy={p.y} r={22}
+                <circle cx={p.x} cy={p.y} r={haloR}
                   fill={isHl ? '#fde68a' : p.color} opacity={0.3} />
               )}
-              <circle cx={p.x} cy={p.y} r={isSel ? 14 : 10}
+              <circle cx={p.x} cy={p.y} r={r}
                 fill={p.color}
                 stroke={isSel || isHl ? '#fff' : 'none'} strokeWidth={2}
                 style={{ cursor: 'pointer' }}
                 onClick={(e) => { e.stopPropagation(); tryClick(() => selectByNid(treeId, nid)) }} />
 
+              {tier && (
+                <text x={p.x} y={p.y + tierFs * 0.35} textAnchor="middle"
+                  fontSize={tierFs} fill="#0a0e1a" fontWeight={700}
+                  style={{ pointerEvents: 'none' }}>
+                  {tier}
+                </text>
+              )}
+
               {lexs.map((lex, i) => {
                 const ang = (i / Math.max(lexs.length, 1)) * Math.PI * 2
-                const mx = p.x + Math.cos(ang) * 22
-                const my = p.y + Math.sin(ang) * 22
+                const mx = p.x + Math.cos(ang) * moonOrbitR
+                const my = p.y + Math.sin(ang) * moonOrbitR
                 const mc = catColor(String(lex.data.category || ''))
                 const moonSel = selectedLexId === lex.id
                 const moonRel = relatedLexIds.has(lex.id)
                 return (
                   <g key={lex.id}>
-                    {moonRel && <circle cx={mx} cy={my} r={6} fill="none" stroke="#fde68a" strokeOpacity={0.55} strokeWidth={1} />}
-                    <circle cx={mx} cy={my} r={moonSel ? 4.5 : 3}
+                    {moonRel && <circle cx={mx} cy={my} r={5} fill="none" stroke="#fde68a" strokeOpacity={0.55} strokeWidth={1} />}
+                    <circle cx={mx} cy={my} r={moonSel ? 4 : 2.6}
                       fill={mc} stroke={moonSel ? '#fff' : 'none'} strokeWidth={1}
                       style={{ cursor: 'pointer' }}
                       onClick={(e) => { e.stopPropagation(); tryClick(() => selectByLex(lex.id)) }}>
@@ -597,7 +627,7 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
         })}
       </>
       )
-    }, [nodes, positions, lexsByNid, selectedNid, selectedLexId, relatedLexIds, highlightedNids, treeId, neighborSet])
+    }, [nodes, positions, lexsByNid, slidesByNodeId, selectedNid, selectedLexId, relatedLexIds, highlightedNids, treeId, neighborSet, z])
 
     const labelsLayer = useMemo(() => {
       return (
@@ -610,16 +640,18 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
             const isHov = hovered === nid
             const op = labelOpacity(isSel || isHl, isHov)
             if (op <= 0) return null
+            const slides = slidesByNodeId.get(n.id) || 0
+            const baseR = Math.min(8 + slides * 1.0, 18)
             return (
               <Label key={n.id}
-                x={p.x} y={p.y + 30}
+                x={p.x} y={p.y + baseR + 14}
                 text={String(n.data.title)} color="#fff"
                 size={10} opacity={op} weight={500} />
             )
           })}
         </>
       )
-    }, [nodes, positions, selectedNid, highlightedNids, hovered, zoomPct])
+    }, [nodes, positions, slidesByNodeId, selectedNid, highlightedNids, hovered, zoomPct])
 
     return (
       <div style={{ position: 'relative', width: '100%', height: '100%' }}>
