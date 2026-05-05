@@ -141,7 +141,7 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
   // GraphView — używa wspólnego adapter'a @obieg-zero/bq-cosmos. Bez gating (reader mode: wszystko widoczne).
   function GraphView() {
     const { treeId, selectedNid, selectedLexId } = useNav()
-    const data = useBqGraphData(store as any, treeId, { selectedMoonId: selectedLexId })
+    const data = useBqGraphData(store, treeId, { selectedMoonId: selectedLexId })
 
     if (data.rawNodes.length === 0) return <ui.Placeholder text="Drzewo nie ma węzłów" />
 
