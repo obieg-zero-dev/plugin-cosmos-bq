@@ -58,6 +58,16 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
   // Zoom limits + szybkość wygaszania resetu
   const ZOOM = { min: 0.5, max: 5, resetMs: 350 }
 
+  // === Moon/kontekst — duolingo-chip jako rounded square (kwadrat z zaokrąglonymi rogami).
+  const MOON = {
+    size: 7,             // bok idle
+    sizeSelected: 9,     // bok selected (większy + biała ramka)
+    rx: 2,               // zaokrąglenie rogów
+    ringSize: 11,        // outer rounded rect dla related (powiązany termin)
+    ringRx: 3,
+    orbitGap: 14,        // ile px od krawędzi planety (poprzednio 8 — było zbyt blisko)
+  }
+
   // === Sonar/ping na zaznaczonej planecie. ASMR-breath: rzadkie, długie, spokojne pulsowanie.
   const SONAR = {
     rings: 2,                // dwa ringi w locie (jeden jeszcze wybrzmiewa gdy drugi startuje)
@@ -593,7 +603,7 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
         r,                                  // promień korpusu (selected = +4)
         haloR: r + 8,                       // zewnętrzny krąg aureoli
         liftOff: Math.max(2, r * 0.18),     // przesunięcie ciemnej tarczy "lift" w dół (chunky 3D)
-        moonOrbitR: r + 8,                  // promień orbity księżyców wokół planety
+        moonOrbitR: r + MOON.orbitGap,      // promień orbity księżyców (z odstępem od krawędzi)
       }
     }
 
@@ -646,7 +656,7 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
       )
     }
 
-    // Mini-żeton: księżyc krążący wokół planety, mała kategoria leksykonu.
+    // Mini-żeton kontekstu: rounded-square chip à la duolingo. Saturowany kolor, biała ramka na zaznaczeniu.
     const Moon = (p: {
       x: number; y: number
       color: string
@@ -654,22 +664,32 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
       related?: boolean
       title: string
       onClick?: () => void
-    }) => (
-      <g>
-        {p.related && (
-          <circle cx={p.x} cy={p.y} r={5} fill="none"
-            stroke={COSMOS.highlight} strokeOpacity={0.55} strokeWidth={1}
-            pointerEvents="none" />
-        )}
-        <circle cx={p.x} cy={p.y} r={p.selected ? 4 : 2.6}
-          fill={p.color}
-          stroke={p.selected ? COSMOS.label : 'none'} strokeWidth={1}
-          style={{ cursor: p.onClick ? 'pointer' : 'default' }}
-          onClick={p.onClick ? (e) => { e.stopPropagation(); p.onClick!() } : undefined}>
-          <title>{p.title}</title>
-        </circle>
-      </g>
-    )
+    }) => {
+      const size = p.selected ? MOON.sizeSelected : MOON.size
+      return (
+        <g>
+          {p.related && (
+            <rect
+              x={p.x - MOON.ringSize / 2} y={p.y - MOON.ringSize / 2}
+              width={MOON.ringSize} height={MOON.ringSize}
+              rx={MOON.ringRx} ry={MOON.ringRx}
+              fill="none" stroke={COSMOS.highlight}
+              strokeOpacity={0.55} strokeWidth={1}
+              pointerEvents="none" />
+          )}
+          <rect
+            x={p.x - size / 2} y={p.y - size / 2}
+            width={size} height={size}
+            rx={MOON.rx} ry={MOON.rx}
+            fill={p.color}
+            stroke={p.selected ? COSMOS.label : 'none'} strokeWidth={1}
+            style={{ cursor: p.onClick ? 'pointer' : 'default' }}
+            onClick={p.onClick ? (e) => { e.stopPropagation(); p.onClick!() } : undefined}>
+            <title>{p.title}</title>
+          </rect>
+        </g>
+      )
+    }
 
     // Sonar/ping: pulsujące ringi rozchodzące się od planety. Animacja CSS @keyframes (GPU).
     const Sonar = (p: { x: number; y: number; r: number; color: string }) => (
