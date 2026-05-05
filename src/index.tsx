@@ -58,6 +58,16 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
   // Zoom limits + szybkość wygaszania resetu
   const ZOOM = { min: 0.5, max: 5, resetMs: 350 }
 
+  // === Sonar/ping na zaznaczonej planecie. ASMR-delicate: 3 staggered ringi, ease-out, scale + fade.
+  const SONAR = {
+    rings: 3,                // ile pulsów rozchodzi się równocześnie (staggered)
+    duration: 2.4,           // s — czas jednego cyklu (od planety do zaniku)
+    scaleFrom: 1,
+    scaleTo: 2.6,
+    opacityFrom: 0.55,       // start: ledwie widoczny, nie krzykliwy
+    strokeWidth: 1.2,
+  }
+
   type SimNode = SimulationNodeDatum & {
     id: string
     branch: string
@@ -661,6 +671,22 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
       </g>
     )
 
+    // Sonar/ping: pulsujące ringi rozchodzące się od planety. Animacja CSS @keyframes (GPU).
+    const Sonar = (p: { x: number; y: number; r: number; color: string }) => (
+      <g transform={`translate(${p.x} ${p.y})`} style={{ pointerEvents: 'none' }}>
+        {Array.from({ length: SONAR.rings }, (_, i) => (
+          <circle key={i} cx={0} cy={0} r={p.r}
+            fill="none" stroke={p.color} strokeWidth={SONAR.strokeWidth}
+            style={{
+              transformBox: 'fill-box',
+              transformOrigin: 'center',
+              animation: `bq-sonar ${SONAR.duration}s ease-out ${(i * SONAR.duration / SONAR.rings).toFixed(2)}s infinite`,
+              opacity: 0,            // initial — keyframe nadpisuje od 0%
+            }} />
+        ))}
+      </g>
+    )
+
     // Gwiazda centralna: jasny rdzeń + miękka aura.
     const Star = (p: { cx: number; cy: number; coreR?: number; auraR?: number }) => (
       <>
@@ -897,11 +923,24 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
       )
     }, [nodes, positions, slidesByNodeId, selectedNid, highlightedNids, hovered, zoomK])
 
+    // Sonar tylko dla zaznaczonej planety. Memo na selectedNid + position (śledzi planetę podczas osiadania sim).
+    const sonarLayer = useMemo(() => {
+      if (!selectedNid) return null
+      const p = positions.get(selectedNid); if (!p) return null
+      const baseR = planetRByNid.get(selectedNid) || 8
+      const { r } = planetGeom(baseR, 'selected')   // outer r ze stanu selected
+      const color = branchColorByNid.get(selectedNid) || COSMOS.fallback
+      return <Sonar x={p.x} y={p.y} r={r} color={color} />
+    }, [selectedNid, positions, planetRByNid, branchColorByNid])
+
     return (
       <div style={{ position: 'relative', width: '100%', height: '100%' }}>
         <svg ref={svgRef} viewBox="0 0 600 600" preserveAspectRatio="xMidYMid meet"
           style={{ display: 'block', width: '100%', height: '100%', background: `radial-gradient(ellipse at center, ${COSMOS.bgFrom} 0%, ${COSMOS.bgTo} 100%)`, borderRadius: 8, cursor: panning ? 'grabbing' : 'grab', userSelect: 'none' }}
           onClick={onBackgroundClick}>
+          <defs>
+            <style>{`@keyframes bq-sonar { 0% { transform: scale(${SONAR.scaleFrom}); opacity: ${SONAR.opacityFrom}; } 100% { transform: scale(${SONAR.scaleTo}); opacity: 0; } }`}</style>
+          </defs>
           <g ref={gRef}>
             {orbitsLayer}
             <Star cx={cx} cy={cy} />
@@ -909,6 +948,7 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
             {edgesLayer}
             {highlightLines}
             {shadowsLayer}
+            {sonarLayer}
             {planetsLayer}
             {labelsLayer}
           </g>

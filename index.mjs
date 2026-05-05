@@ -3169,6 +3169,17 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
     // tłumienie prędkości — wyższe = mniej wibracji
   };
   const ZOOM = { min: 0.5, max: 5, resetMs: 350 };
+  const SONAR = {
+    rings: 3,
+    // ile pulsów rozchodzi się równocześnie (staggered)
+    duration: 2.4,
+    // s — czas jednego cyklu (od planety do zaniku)
+    scaleFrom: 1,
+    scaleTo: 2.6,
+    opacityFrom: 0.55,
+    // start: ledwie widoczny, nie krzykliwy
+    strokeWidth: 1.2
+  };
   const useNav = sdk.create(() => ({
     treeId: null,
     selectedNid: null,
@@ -3754,6 +3765,25 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
         }
       )
     ] });
+    const Sonar = (p) => /* @__PURE__ */ jsx("g", { transform: `translate(${p.x} ${p.y})`, style: { pointerEvents: "none" }, children: Array.from({ length: SONAR.rings }, (_, i) => /* @__PURE__ */ jsx(
+      "circle",
+      {
+        cx: 0,
+        cy: 0,
+        r: p.r,
+        fill: "none",
+        stroke: p.color,
+        strokeWidth: SONAR.strokeWidth,
+        style: {
+          transformBox: "fill-box",
+          transformOrigin: "center",
+          animation: `bq-sonar ${SONAR.duration}s ease-out ${(i * SONAR.duration / SONAR.rings).toFixed(2)}s infinite`,
+          opacity: 0
+          // initial — keyframe nadpisuje od 0%
+        }
+      },
+      i
+    )) });
     const Star = (p) => /* @__PURE__ */ jsxs(Fragment, { children: [
       /* @__PURE__ */ jsx("circle", { cx: p.cx, cy: p.cy, r: p.coreR ?? 6, fill: COSMOS.star }),
       /* @__PURE__ */ jsx("circle", { cx: p.cx, cy: p.cy, r: p.auraR ?? 14, fill: COSMOS.star, opacity: 0.2 })
@@ -4001,8 +4031,17 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
         );
       }) });
     }, [nodes, positions, slidesByNodeId, selectedNid, highlightedNids, hovered, zoomK]);
+    const sonarLayer = useMemo(() => {
+      if (!selectedNid) return null;
+      const p = positions.get(selectedNid);
+      if (!p) return null;
+      const baseR = planetRByNid.get(selectedNid) || 8;
+      const { r } = planetGeom(baseR, "selected");
+      const color2 = branchColorByNid.get(selectedNid) || COSMOS.fallback;
+      return /* @__PURE__ */ jsx(Sonar, { x: p.x, y: p.y, r, color: color2 });
+    }, [selectedNid, positions, planetRByNid, branchColorByNid]);
     return /* @__PURE__ */ jsxs("div", { style: { position: "relative", width: "100%", height: "100%" }, children: [
-      /* @__PURE__ */ jsx(
+      /* @__PURE__ */ jsxs(
         "svg",
         {
           ref: svgRef,
@@ -4010,16 +4049,20 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
           preserveAspectRatio: "xMidYMid meet",
           style: { display: "block", width: "100%", height: "100%", background: `radial-gradient(ellipse at center, ${COSMOS.bgFrom} 0%, ${COSMOS.bgTo} 100%)`, borderRadius: 8, cursor: panning ? "grabbing" : "grab", userSelect: "none" },
           onClick: onBackgroundClick,
-          children: /* @__PURE__ */ jsxs("g", { ref: gRef, children: [
-            orbitsLayer,
-            /* @__PURE__ */ jsx(Star, { cx, cy }),
-            contextLayer,
-            edgesLayer,
-            highlightLines,
-            shadowsLayer,
-            planetsLayer,
-            labelsLayer
-          ] })
+          children: [
+            /* @__PURE__ */ jsx("defs", { children: /* @__PURE__ */ jsx("style", { children: `@keyframes bq-sonar { 0% { transform: scale(${SONAR.scaleFrom}); opacity: ${SONAR.opacityFrom}; } 100% { transform: scale(${SONAR.scaleTo}); opacity: 0; } }` }) }),
+            /* @__PURE__ */ jsxs("g", { ref: gRef, children: [
+              orbitsLayer,
+              /* @__PURE__ */ jsx(Star, { cx, cy }),
+              contextLayer,
+              edgesLayer,
+              highlightLines,
+              shadowsLayer,
+              sonarLayer,
+              planetsLayer,
+              labelsLayer
+            ] })
+          ]
         }
       ),
       /* @__PURE__ */ jsx("div", { style: { position: "absolute", top: 8, right: 8, background: COSMOS.hudBg, padding: "4px 8px", borderRadius: 6, color: COSMOS.hud }, children: /* @__PURE__ */ jsxs(ui.Row, { children: [
