@@ -3241,15 +3241,15 @@ const computeUsedBranches = (nodes, branches) => {
     };
   });
 };
-const computeLayout = (nodes, branches, edges) => {
-  const countPerKey = /* @__PURE__ */ new Map();
-  for (const n of nodes) {
+const computeLayout = (visibleNodes, allNodes, branches, visibleEdges) => {
+  const countPerKeyAll = /* @__PURE__ */ new Map();
+  for (const n of allNodes) {
     const k = branchOf(n);
-    countPerKey.set(k, (countPerKey.get(k) || 0) + 1);
+    countPerKeyAll.set(k, (countPerKeyAll.get(k) || 0) + 1);
   }
   let prevR = LAYOUT.rMin;
-  const orbits = computeUsedBranches(nodes, branches).map((info, i) => {
-    const cnt = countPerKey.get(info.key) || 1;
+  const orbits = computeUsedBranches(allNodes, branches).map((info, i) => {
+    const cnt = countPerKeyAll.get(info.key) || 1;
     const required = cnt * LAYOUT.minArc / (2 * Math.PI);
     const r = Math.max(prevR + (i === 0 ? 0 : LAYOUT.baseStep), required);
     prevR = r;
@@ -3257,7 +3257,8 @@ const computeLayout = (nodes, branches, edges) => {
   });
   const initialSimNodes = [];
   for (const orbit of orbits) {
-    const onOrbit = nodes.filter((n) => branchOf(n) === orbit.key);
+    const onOrbit = visibleNodes.filter((n) => branchOf(n) === orbit.key);
+    if (!onOrbit.length) continue;
     onOrbit.forEach((n, j) => {
       const a2 = j / Math.max(onOrbit.length, 1) * Math.PI * 2 - Math.PI / 2;
       initialSimNodes.push({
@@ -3271,7 +3272,7 @@ const computeLayout = (nodes, branches, edges) => {
     });
   }
   const nidSet = new Set(initialSimNodes.map((n) => n.id));
-  const simLinks = edges.map((e) => ({ source: e.from, target: e.to })).filter((l) => nidSet.has(l.source) && nidSet.has(l.target));
+  const simLinks = visibleEdges.map((e) => ({ source: e.from, target: e.to })).filter((l) => nidSet.has(l.source) && nidSet.has(l.target));
   return { initialSimNodes, simLinks, orbits };
 };
 const Label = (p) => {
@@ -3430,13 +3431,33 @@ const Planet = (p) => {
   const isHl = p.state === "highlighted";
   const haloColor = isHl ? COSMOS.highlight : p.color;
   const tierFs = Math.max(7, p.baseR * 0.85) / p.zoomFactor;
+  const isFrontier = !!p.frontier;
+  const baseOpacity = p.dimmed ? 0.25 : isFrontier ? 0.55 : 1;
   return /* @__PURE__ */ jsxs(
     "g",
     {
       onMouseEnter: p.onMouseEnter,
       onMouseLeave: p.onMouseLeave,
-      style: { opacity: p.dimmed ? 0.25 : 1, transition: "opacity 150ms" },
+      style: { opacity: baseOpacity, transition: "opacity 150ms" },
       children: [
+        p.isNext && /* @__PURE__ */ jsx(
+          "circle",
+          {
+            cx: p.x,
+            cy: p.y,
+            r: haloR + 2,
+            fill: "none",
+            stroke: COSMOS.highlight,
+            strokeWidth: 1.2,
+            opacity: 0.7,
+            style: {
+              transformBox: "fill-box",
+              transformOrigin: "center",
+              animation: "cosmos-next 2.2s ease-in-out infinite"
+            },
+            pointerEvents: "none"
+          }
+        ),
         (isSel || isHl) && /* @__PURE__ */ jsx(
           "circle",
           {
@@ -3464,9 +3485,10 @@ const Planet = (p) => {
             cx: p.x,
             cy: p.y,
             r,
-            fill: p.color,
-            stroke: isSel || isHl ? COSMOS.label : "none",
-            strokeWidth: 2,
+            fill: isFrontier ? darken(p.color, 0.6) : p.color,
+            stroke: isSel || isHl ? COSMOS.label : isFrontier ? p.color : "none",
+            strokeWidth: isFrontier ? 1.5 : 2,
+            strokeDasharray: isFrontier ? "3 2" : void 0,
             style: { cursor: p.onClick ? "pointer" : "default" },
             onClick: p.onClick ? (e) => {
               e.stopPropagation();
@@ -3474,7 +3496,20 @@ const Planet = (p) => {
             } : void 0
           }
         ),
-        p.tier && /* @__PURE__ */ jsx(
+        isFrontier ? /* @__PURE__ */ jsx(
+          "text",
+          {
+            x: p.x,
+            y: p.y + tierFs * 0.35,
+            textAnchor: "middle",
+            fontSize: tierFs,
+            fill: p.color,
+            fontWeight: 700,
+            opacity: 0.9,
+            pointerEvents: "none",
+            children: "?"
+          }
+        ) : p.tier ? /* @__PURE__ */ jsx(
           "text",
           {
             x: p.x,
@@ -3486,11 +3521,28 @@ const Planet = (p) => {
             pointerEvents: "none",
             children: p.tier
           }
-        )
+        ) : null
       ]
     }
   );
 };
+const FlashEdge = (p) => /* @__PURE__ */ jsx(
+  "line",
+  {
+    x1: p.a.x,
+    y1: p.a.y,
+    x2: p.b.x,
+    y2: p.b.y,
+    stroke: COSMOS.highlight,
+    strokeLinecap: "round",
+    strokeWidth: p.fresh ? 3 : 1.5,
+    style: {
+      animation: p.fresh ? "cosmos-flash 1.4s ease-out 1" : void 0,
+      opacity: p.fresh ? void 0 : 0.45
+    },
+    pointerEvents: "none"
+  }
+);
 const Moon = (p) => {
   const size = p.selected ? MOON.sizeSelected : MOON.size;
   const x0 = p.x - size / 2;
@@ -3563,41 +3615,88 @@ function CosmosGraph(props) {
     onSelectMoon,
     onDeselect,
     contextBranchPrefix,
-    placeholder
+    placeholder,
+    progress,
+    bigBranches = [],
+    rootNid: rootNidProp = null
   } = props;
   const cx = LAYOUT.cx, cy = LAYOUT.cy;
+  const gating = !!progress;
+  const hits = (progress == null ? void 0 : progress.hits) ?? {};
+  const flashPairs = (progress == null ? void 0 : progress.flashPairs) ?? [];
+  const nextNid = (progress == null ? void 0 : progress.nextNid) ?? null;
+  const bigBranchSet = useMemo(() => new Set(bigBranches), [bigBranches]);
+  const { visible, frontier } = useMemo(() => {
+    var _a;
+    if (!gating) {
+      const all = new Set(nodes.map((n) => n.nid));
+      return { visible: all, frontier: /* @__PURE__ */ new Set() };
+    }
+    const adj = /* @__PURE__ */ new Map();
+    for (const e of edges) {
+      if (!adj.has(e.from)) adj.set(e.from, /* @__PURE__ */ new Set());
+      if (!adj.has(e.to)) adj.set(e.to, /* @__PURE__ */ new Set());
+      adj.get(e.from).add(e.to);
+      adj.get(e.to).add(e.from);
+    }
+    const disc = /* @__PURE__ */ new Set();
+    for (const n of nodes) if ((hits[n.nid] || 0) > 0) disc.add(n.nid);
+    if (!disc.size) {
+      const tierOf = (n) => {
+        if (typeof n.tier === "number") return n.tier;
+        const parsed = parseInt(String(n.tier ?? ""), 10);
+        return Number.isFinite(parsed) ? parsed : 0;
+      };
+      const sorted = [...nodes].sort((a2, b) => tierOf(a2) - tierOf(b));
+      const rootId = rootNidProp || ((_a = sorted[0]) == null ? void 0 : _a.nid);
+      if (rootId) return { visible: /* @__PURE__ */ new Set([rootId]), frontier: /* @__PURE__ */ new Set([rootId]) };
+      return { visible: /* @__PURE__ */ new Set(), frontier: /* @__PURE__ */ new Set() };
+    }
+    const vis = new Set(disc);
+    const front = /* @__PURE__ */ new Set();
+    for (const nid of disc) for (const nb of adj.get(nid) || []) if (!disc.has(nb)) {
+      vis.add(nb);
+      front.add(nb);
+    }
+    return { visible: vis, frontier: front };
+  }, [gating, nodes, edges, hits, rootNidProp]);
+  const visNodes = useMemo(() => gating ? nodes.filter((n) => visible.has(n.nid)) : nodes, [gating, nodes, visible]);
+  const visEdges = useMemo(() => gating ? edges.filter((e) => visible.has(e.from) && visible.has(e.to)) : edges, [gating, edges, visible]);
+  const visContextEdges = useMemo(() => gating ? contextEdges.filter((e) => visible.has(e.from) && visible.has(e.to)) : contextEdges, [gating, contextEdges, visible]);
+  const visMoons = useMemo(() => gating ? moons.filter((m2) => visible.has(m2.nodeId)) : moons, [gating, moons, visible]);
+  const visFlashPairs = useMemo(() => flashPairs.filter((p) => visible.has(p.fromNid) && visible.has(p.toNid)), [flashPairs, visible]);
   const { initialSimNodes, simLinks, orbits } = useMemo(
-    () => computeLayout(nodes, branches, edges),
-    [nodes, branches, edges]
+    () => computeLayout(visNodes, nodes, branches, visEdges),
+    [visNodes, nodes, branches, visEdges]
   );
   const branchColorByNid = useMemo(() => {
     const orbitColors = new Map(orbits.map((o) => [o.key, o.color]));
     const m2 = /* @__PURE__ */ new Map();
-    for (const n of nodes) m2.set(n.nid, orbitColors.get(branchOf(n)) || COSMOS.fallback);
+    for (const n of visNodes) m2.set(n.nid, orbitColors.get(branchOf(n)) || COSMOS.fallback);
     return m2;
-  }, [nodes, orbits]);
+  }, [visNodes, orbits]);
   const baseRByNid = useMemo(() => {
     const m2 = /* @__PURE__ */ new Map();
-    for (const n of nodes) m2.set(n.nid, n.size ?? LAYOUT.defaultSize);
+    for (const n of visNodes) m2.set(n.nid, n.size ?? LAYOUT.defaultSize);
     return m2;
-  }, [nodes]);
+  }, [visNodes]);
   const moonsByNid = useMemo(() => {
     const m2 = /* @__PURE__ */ new Map();
-    for (const moon of moons) {
+    for (const moon of visMoons) {
       if (!m2.has(moon.nodeId)) m2.set(moon.nodeId, []);
       m2.get(moon.nodeId).push(moon);
     }
     return m2;
-  }, [moons]);
+  }, [visMoons]);
   const contextNids = useMemo(() => {
     const set2 = /* @__PURE__ */ new Set();
     if (!contextBranchPrefix) return set2;
     const prefix = contextBranchPrefix.toLowerCase();
-    for (const n of nodes) {
+    for (const n of visNodes) {
       if (n.branch.toLowerCase().startsWith(prefix)) set2.add(n.nid);
     }
     return set2;
-  }, [nodes, contextBranchPrefix]);
+  }, [visNodes, contextBranchPrefix]);
   const relColorByKey = useMemo(() => {
     const m2 = /* @__PURE__ */ new Map();
     for (const r of relTypes) m2.set(r.key, { label: r.label, color: tok(r.color) });
@@ -3656,16 +3755,16 @@ function CosmosGraph(props) {
   const neighborSet = useMemo(() => {
     if (!focusNid) return null;
     const set2 = /* @__PURE__ */ new Set([focusNid]);
-    for (const e of edges) {
+    for (const e of visEdges) {
       if (e.from === focusNid) set2.add(e.to);
       if (e.to === focusNid) set2.add(e.from);
     }
-    for (const ce of contextEdges) {
+    for (const ce of visContextEdges) {
       if (ce.from === focusNid) set2.add(ce.to);
       if (ce.to === focusNid) set2.add(ce.from);
     }
     return set2;
-  }, [focusNid, edges, contextEdges]);
+  }, [focusNid, visEdges, visContextEdges]);
   const isNodeDimmed = (nid) => !!neighborSet && !neighborSet.has(nid);
   const isEdgeFocused = (a2, b) => !!neighborSet && (a2 === focusNid || b === focusNid);
   const isEdgeRelevant = (a2, b) => !!neighborSet && neighborSet.has(a2) && neighborSet.has(b);
@@ -3673,19 +3772,21 @@ function CosmosGraph(props) {
   const labelOpacity = (sel, hov) => sel ? 1 : hov ? 0.95 : showAllLabels ? 0.8 : 0;
   const z = Math.max(zoomK, 0.5);
   const edgeOpacity = (focused, relevant, idle, focusedOp, relevantOp, dim = 0.02) => !neighborSet ? idle : focused ? focusedOp : relevant ? relevantOp : dim;
-  const orbitsLayer = useMemo(() => /* @__PURE__ */ jsx(Fragment, { children: orbits.map((o) => /* @__PURE__ */ jsx(
-    Orbit,
-    {
-      cx,
-      cy,
-      radius: o.radius,
-      color: o.color,
-      label: o.label,
-      zoomFactor: z
-    },
-    o.key
-  )) }), [orbits, cx, cy, z]);
-  const edgesLayer = useMemo(() => /* @__PURE__ */ jsx(Fragment, { children: edges.map((e, i) => {
+  const orbitsLayer = useMemo(() => /* @__PURE__ */ jsx(Fragment, { children: orbits.map((o) => {
+    const big = bigBranchSet.has(o.key);
+    return /* @__PURE__ */ jsx("g", { style: big ? { strokeWidth: 1.5 } : void 0, children: /* @__PURE__ */ jsx(
+      Orbit,
+      {
+        cx,
+        cy,
+        radius: o.radius,
+        color: o.color,
+        label: o.label,
+        zoomFactor: z
+      }
+    ) }, o.key);
+  }) }), [orbits, cx, cy, z, bigBranchSet]);
+  const edgesLayer = useMemo(() => /* @__PURE__ */ jsx(Fragment, { children: visEdges.map((e, i) => {
     const a2 = positions.get(e.from), b = positions.get(e.to);
     if (!a2 || !b) return null;
     const hasType = !!e.type;
@@ -3710,8 +3811,8 @@ function CosmosGraph(props) {
         zoomFactor: z
       }
     ) }, `e-${i}`);
-  }) }), [edges, positions, neighborSet, focusNid, z, contextNids, baseRByNid, branchColorByNid]);
-  const contextLayer = useMemo(() => /* @__PURE__ */ jsx(Fragment, { children: contextEdges.map((ce, i) => {
+  }) }), [visEdges, positions, neighborSet, focusNid, z, contextNids, baseRByNid, branchColorByNid]);
+  const contextLayer = useMemo(() => /* @__PURE__ */ jsx(Fragment, { children: visContextEdges.map((ce, i) => {
     const a2 = positions.get(ce.from), b = positions.get(ce.to);
     if (!a2 || !b) return null;
     const def = relColorByKey.get(ce.relation);
@@ -3738,7 +3839,15 @@ function CosmosGraph(props) {
         zoomFactor: z
       }
     ) }, `ctx-${i}`);
-  }) }), [contextEdges, positions, neighborSet, focusNid, z, contextNids, relColorByKey]);
+  }) }), [visContextEdges, positions, neighborSet, focusNid, z, contextNids, relColorByKey]);
+  const flashLayer = useMemo(() => {
+    if (!visFlashPairs.length) return null;
+    return /* @__PURE__ */ jsx(Fragment, { children: visFlashPairs.map((fp, i) => {
+      const a2 = positions.get(fp.fromNid), b = positions.get(fp.toNid);
+      if (!a2 || !b) return null;
+      return /* @__PURE__ */ jsx(FlashEdge, { a: a2, b, fresh: fp.fresh }, `fl-${i}-${fp.fromNid}-${fp.toNid}`);
+    }) });
+  }, [visFlashPairs, positions]);
   const highlightLines = useMemo(() => {
     if (!selectedMoonId || !highlightedNids) return null;
     const nids = Array.from(highlightedNids);
@@ -3766,7 +3875,8 @@ function CosmosGraph(props) {
     }
     return /* @__PURE__ */ jsx(Fragment, { children: lines });
   }, [selectedMoonId, highlightedNids, positions, z]);
-  const shadowsLayer = useMemo(() => /* @__PURE__ */ jsx(Fragment, { children: nodes.map((n) => {
+  const shadowsLayer = useMemo(() => /* @__PURE__ */ jsx(Fragment, { children: visNodes.map((n) => {
+    if (frontier.has(n.nid)) return null;
     const p = positions.get(n.nid);
     if (!p) return null;
     return /* @__PURE__ */ jsx(
@@ -3781,7 +3891,7 @@ function CosmosGraph(props) {
       },
       n.nid
     );
-  }) }), [nodes, positions, baseRByNid, cx, cy]);
+  }) }), [visNodes, positions, baseRByNid, cx, cy, frontier]);
   const sonarLayer = useMemo(() => {
     if (!selectedNid) return null;
     const p = positions.get(selectedNid);
@@ -3791,16 +3901,18 @@ function CosmosGraph(props) {
     const color2 = branchColorByNid.get(selectedNid) || COSMOS.fallback;
     return /* @__PURE__ */ jsx(Sonar, { x: p.x, y: p.y, r, color: color2 });
   }, [selectedNid, positions, baseRByNid, branchColorByNid]);
-  const planetsLayer = useMemo(() => /* @__PURE__ */ jsx(Fragment, { children: nodes.map((n) => {
+  const planetsLayer = useMemo(() => /* @__PURE__ */ jsx(Fragment, { children: visNodes.map((n) => {
     const p = positions.get(n.nid);
     if (!p) return null;
     const color2 = branchColorByNid.get(n.nid) || COSMOS.fallback;
     const isSel = selectedNid === n.nid;
     const isHl = !!(highlightedNids == null ? void 0 : highlightedNids.has(n.nid));
+    const isFrontier = frontier.has(n.nid) && (hits[n.nid] || 0) === 0;
     const state = isSel ? "selected" : isHl ? "highlighted" : "idle";
-    const myMoons = moonsByNid.get(n.nid) || [];
+    const myMoons = isFrontier ? [] : moonsByNid.get(n.nid) || [];
     const baseR = baseRByNid.get(n.nid) || LAYOUT.defaultSize;
     const moonOrbitR = planetGeom(baseR, state).moonOrbitR;
+    const isNext = nextNid === n.nid && !isSel;
     return /* @__PURE__ */ jsxs("g", { children: [
       /* @__PURE__ */ jsx(
         Planet,
@@ -3813,6 +3925,8 @@ function CosmosGraph(props) {
           tier: n.tier !== void 0 && n.tier !== "" ? String(n.tier) : void 0,
           zoomFactor: z,
           dimmed: isNodeDimmed(n.nid),
+          frontier: isFrontier,
+          isNext,
           onMouseEnter: () => setHoverIfIdle(n.nid),
           onMouseLeave: () => setHoverIfIdle(null),
           onClick: onSelectNode ? () => onSelectNode(n.nid) : void 0
@@ -3835,10 +3949,12 @@ function CosmosGraph(props) {
         );
       })
     ] }, n.nid);
-  }) }), [nodes, positions, moonsByNid, baseRByNid, selectedNid, selectedMoonId, relatedMoonIds, highlightedNids, neighborSet, z, branchColorByNid, onSelectNode, onSelectMoon]);
-  const labelsLayer = useMemo(() => /* @__PURE__ */ jsx(Fragment, { children: nodes.map((n) => {
+  }) }), [visNodes, positions, moonsByNid, baseRByNid, selectedNid, selectedMoonId, relatedMoonIds, highlightedNids, neighborSet, z, branchColorByNid, frontier, hits, nextNid, onSelectNode, onSelectMoon]);
+  const labelsLayer = useMemo(() => /* @__PURE__ */ jsx(Fragment, { children: visNodes.map((n) => {
     const p = positions.get(n.nid);
     if (!p) return null;
+    const isFrontier = frontier.has(n.nid) && (hits[n.nid] || 0) === 0;
+    if (isFrontier) return null;
     const isSel = selectedNid === n.nid;
     const isHl = !!(highlightedNids == null ? void 0 : highlightedNids.has(n.nid));
     const isHov = hovered === n.nid;
@@ -3859,8 +3975,8 @@ function CosmosGraph(props) {
       },
       n.nid
     );
-  }) }), [nodes, positions, baseRByNid, selectedNid, highlightedNids, hovered, zoomK]);
-  if (nodes.length === 0) return /* @__PURE__ */ jsx(Fragment, { children: placeholder ?? null });
+  }) }), [visNodes, positions, baseRByNid, selectedNid, highlightedNids, hovered, zoomK, frontier, hits]);
+  if (visNodes.length === 0) return /* @__PURE__ */ jsx(Fragment, { children: placeholder ?? null });
   return /* @__PURE__ */ jsxs("div", { style: { position: "relative", width: "100%", height: "100%" }, children: [
     /* @__PURE__ */ jsxs(
       "svg",
@@ -3879,12 +3995,17 @@ function CosmosGraph(props) {
         },
         onClick: () => onDeselect == null ? void 0 : onDeselect(),
         children: [
-          /* @__PURE__ */ jsx("defs", { children: /* @__PURE__ */ jsx("style", { children: `@keyframes cosmos-sonar { 0% { transform: scale(${SONAR.scaleFrom}); opacity: ${SONAR.opacityFrom}; } 100% { transform: scale(${SONAR.scaleTo}); opacity: 0; } }` }) }),
+          /* @__PURE__ */ jsx("defs", { children: /* @__PURE__ */ jsx("style", { children: `
+            @keyframes cosmos-sonar { 0% { transform: scale(${SONAR.scaleFrom}); opacity: ${SONAR.opacityFrom}; } 100% { transform: scale(${SONAR.scaleTo}); opacity: 0; } }
+            @keyframes cosmos-flash { 0% { opacity: 0; stroke-width: 1; } 18% { opacity: 1; stroke-width: 5; } 100% { opacity: 0; stroke-width: 1; } }
+            @keyframes cosmos-next { 0%, 100% { transform: scale(1); opacity: 0.3; } 50% { transform: scale(1.18); opacity: 0.85; } }
+          ` }) }),
           /* @__PURE__ */ jsxs("g", { ref: gRef, children: [
             orbitsLayer,
             /* @__PURE__ */ jsx(Star, { cx, cy }),
             contextLayer,
             edgesLayer,
+            flashLayer,
             highlightLines,
             shadowsLayer,
             sonarLayer,
