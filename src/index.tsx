@@ -568,7 +568,7 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
       )
     }
 
-    // === Planet/Moon — żetony duolingo. Geometria liczona z planetGeom(), ZERO inline magic numbers.
+    // === Design system kosmosu — żetony, orbity, cienie. Geometria liczona z planetGeom(), zero magic numbers w mapach.
     type PlanetState = 'idle' | 'selected' | 'highlighted'
     const planetGeom = (baseR: number, state: PlanetState) => {
       const r = state === 'selected' ? baseR + 4 : baseR
@@ -576,10 +576,9 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
         r,                                  // promień korpusu (selected = +4)
         haloR: r + 8,                       // zewnętrzny krąg aureoli
         liftOff: Math.max(2, r * 0.18),     // przesunięcie ciemnej tarczy "lift" w dół (chunky 3D)
+        moonOrbitR: r + 8,                  // promień orbity księżyców wokół planety
       }
     }
-    // Eksponujemy r dla layoutu księżyców (orbit r + 8) i strzałek (targetR).
-    const planetOuterR = (baseR: number, state: PlanetState) => planetGeom(baseR, state).r
 
     // Żeton-planeta: flat color + ciemniejszy "lift" pod spodem (duolingo button feel).
     const Planet = (p: {
@@ -655,23 +654,73 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
       </g>
     )
 
-    // Warstwy używające <Label> MUSZĄ mieć `z` w deps — Label czyta z z closure, memo trzyma stary fs.
-    const orbitsLayer = useMemo(() => {
+    // Gwiazda centralna: jasny rdzeń + miękka aura.
+    const Star = (p: { cx: number; cy: number; coreR?: number; auraR?: number }) => (
+      <>
+        <circle cx={p.cx} cy={p.cy} r={p.coreR ?? 6} fill={COSMOS.star} />
+        <circle cx={p.cx} cy={p.cy} r={p.auraR ?? 14} fill={COSMOS.star} opacity={0.2} />
+      </>
+    )
+
+    // Orbita: przerywany pierścień + label gałęzi nad zenitem.
+    const Orbit = (p: {
+      cx: number; cy: number; radius: number
+      color: string; label: string
+    }) => (
+      <>
+        <circle cx={p.cx} cy={p.cy} r={p.radius}
+          fill="none" stroke={p.color} strokeOpacity={0.35} strokeDasharray="3 5" />
+        <Label x={p.cx} y={p.cy - p.radius - 6}
+          text={p.label} color={p.color}
+          size={9} opacity={0.85} weight={600} uppercase />
+      </>
+    )
+
+    // Cień rzucony przez planetę na "płaszczyznę orbity" — trapezoid z gradientem zanikającym.
+    const CastShadow = (p: {
+      id: string                       // unikalne id (do <linearGradient>)
+      sunX: number; sunY: number
+      planetX: number; planetY: number
+      planetR: number
+      length?: number                  // długość cienia (default 110)
+    }) => {
+      const len = p.length ?? 110
+      const dx = p.planetX - p.sunX, dy = p.planetY - p.sunY
+      const d = Math.hypot(dx, dy) || 1
+      const ux = dx / d, uy = dy / d                 // wektor wychodzący od słońca przez planetę
+      const px = -uy, py = ux                        // wektor prostopadły (szerokość cienia)
+      const w0 = p.planetR * 0.9                     // szerokość przy planecie
+      const w1 = p.planetR * 0.45                    // szerokość na końcu (zwęża się)
+      const x1 = p.planetX + px * w0,            y1 = p.planetY + py * w0
+      const x2 = p.planetX - px * w0,            y2 = p.planetY - py * w0
+      const x3 = p.planetX - px * w1 + ux * len, y3 = p.planetY - py * w1 + uy * len
+      const x4 = p.planetX + px * w1 + ux * len, y4 = p.planetY + py * w1 + uy * len
+      const gradId = `bq-shadow-${p.id}`
       return (
+        <>
+          <linearGradient id={gradId} gradientUnits="userSpaceOnUse"
+            x1={p.planetX} y1={p.planetY}
+            x2={p.planetX + ux * len} y2={p.planetY + uy * len}>
+            <stop offset="0%"  stopColor="#000" stopOpacity={0.32} />
+            <stop offset="100%" stopColor="#000" stopOpacity={0} />
+          </linearGradient>
+          <polygon
+            points={`${x1},${y1} ${x2},${y2} ${x3},${y3} ${x4},${y4}`}
+            fill={`url(#${gradId})`} pointerEvents="none" />
+        </>
+      )
+    }
+
+    // Warstwy używające <Label> MUSZĄ mieć `z` w deps — Label czyta z z closure, memo trzyma stary fs.
+    const orbitsLayer = useMemo(() => (
       <>
         {orbits.map(o => (
-          <circle key={'o-' + o.key} cx={cx} cy={cy} r={o.radius}
-            fill="none" stroke={o.color} strokeOpacity={0.35} strokeDasharray="3 5" />
-        ))}
-        {orbits.map(o => (
-          <Label key={'ol-' + o.key}
-            x={cx} y={cy - o.radius - 6}
-            text={o.label} color={o.color}
-            size={9} opacity={0.85} weight={600} uppercase />
+          <Orbit key={o.key}
+            cx={cx} cy={cy} radius={o.radius}
+            color={o.color} label={o.label} />
         ))}
       </>
-      )
-    }, [orbits, cx, cy, z])
+    ), [orbits, cx, cy, z])
 
     const edgesLayer = useMemo(() => (
       <>
@@ -755,43 +804,16 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
 
     const shadowsLayer = useMemo(() => (
       <>
-        <defs>
-          {nodes.map(n => {
-            const nid = String(n.data.nodeId)
-            const p = positions.get(nid); if (!p) return null
-            const dx = p.x - cx, dy = p.y - cy
-            const len = Math.hypot(dx, dy) || 1
-            const ux = dx / len, uy = dy / len
-            const shadowLen = 110
-            return (
-              <linearGradient key={n.id} id={`bq-shadow-${nid}`} gradientUnits="userSpaceOnUse"
-                x1={p.x} y1={p.y}
-                x2={p.x + ux * shadowLen} y2={p.y + uy * shadowLen}>
-                <stop offset="0%"  stopColor="#000" stopOpacity={0.32} />
-                <stop offset="100%" stopColor="#000" stopOpacity={0} />
-              </linearGradient>
-            )
-          })}
-        </defs>
         {nodes.map(n => {
           const nid = String(n.data.nodeId)
           const p = positions.get(nid); if (!p) return null
-          const r = planetRadius(slidesByNodeId.get(n.id) || 0)
-          const dx = p.x - cx, dy = p.y - cy
-          const len = Math.hypot(dx, dy) || 1
-          const ux = dx / len, uy = dy / len
-          const px = -uy, py = ux
-          const shadowLen = 110
-          const w0 = r * 0.9
-          const w1 = r * 0.45
-          const x1 = p.x + px * w0,            y1 = p.y + py * w0
-          const x2 = p.x - px * w0,            y2 = p.y - py * w0
-          const x3 = p.x - px * w1 + ux * shadowLen, y3 = p.y - py * w1 + uy * shadowLen
-          const x4 = p.x + px * w1 + ux * shadowLen, y4 = p.y + py * w1 + uy * shadowLen
           return (
-            <polygon key={n.id}
-              points={`${x1},${y1} ${x2},${y2} ${x3},${y3} ${x4},${y4}`}
-              fill={`url(#bq-shadow-${nid})`} pointerEvents="none" />
+            <CastShadow key={n.id}
+              id={nid}
+              sunX={cx} sunY={cy}
+              planetX={p.x} planetY={p.y}
+              planetR={planetRadius(slidesByNodeId.get(n.id) || 0)}
+            />
           )
         })}
       </>
@@ -808,7 +830,7 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
           const state: PlanetState = isSel ? 'selected' : isHl ? 'highlighted' : 'idle'
           const lexs = lexsByNid.get(nid) || []
           const baseR = planetRadius(slidesByNodeId.get(n.id) || 0)
-          const moonOrbitR = planetOuterR(baseR, state) + 8
+          const moonOrbitR = planetGeom(baseR, state).moonOrbitR
           return (
             <React.Fragment key={n.id}>
               <Planet
@@ -879,8 +901,7 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
           onClick={onBackgroundClick}>
           <g ref={gRef}>
             {orbitsLayer}
-            <circle cx={cx} cy={cy} r={6} fill={COSMOS.star} />
-            <circle cx={cx} cy={cy} r={14} fill={COSMOS.star} opacity={0.2} />
+            <Star cx={cx} cy={cy} />
             {contextLayer}
             {edgesLayer}
             {highlightLines}

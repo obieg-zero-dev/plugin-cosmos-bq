@@ -1354,11 +1354,12 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
         // promień korpusu (selected = +4)
         haloR: r + 8,
         // zewnętrzny krąg aureoli
-        liftOff: Math.max(2, r * 0.18)
+        liftOff: Math.max(2, r * 0.18),
         // przesunięcie ciemnej tarczy "lift" w dół (chunky 3D)
+        moonOrbitR: r + 8
+        // promień orbity księżyców wokół planety
       };
     };
-    const planetOuterR = (baseR, state) => planetGeom(baseR, state).r;
     const Planet = (p) => {
       const { r, haloR, liftOff } = planetGeom(p.baseR, p.state);
       const isSel = p.state === "selected";
@@ -1458,37 +1459,87 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
         }
       )
     ] });
-    const orbitsLayer = useMemo(() => {
+    const Star = (p) => /* @__PURE__ */ jsxs(Fragment, { children: [
+      /* @__PURE__ */ jsx("circle", { cx: p.cx, cy: p.cy, r: p.coreR ?? 6, fill: COSMOS.star }),
+      /* @__PURE__ */ jsx("circle", { cx: p.cx, cy: p.cy, r: p.auraR ?? 14, fill: COSMOS.star, opacity: 0.2 })
+    ] });
+    const Orbit = (p) => /* @__PURE__ */ jsxs(Fragment, { children: [
+      /* @__PURE__ */ jsx(
+        "circle",
+        {
+          cx: p.cx,
+          cy: p.cy,
+          r: p.radius,
+          fill: "none",
+          stroke: p.color,
+          strokeOpacity: 0.35,
+          strokeDasharray: "3 5"
+        }
+      ),
+      /* @__PURE__ */ jsx(
+        Label,
+        {
+          x: p.cx,
+          y: p.cy - p.radius - 6,
+          text: p.label,
+          color: p.color,
+          size: 9,
+          opacity: 0.85,
+          weight: 600,
+          uppercase: true
+        }
+      )
+    ] });
+    const CastShadow = (p) => {
+      const len = p.length ?? 110;
+      const dx = p.planetX - p.sunX, dy = p.planetY - p.sunY;
+      const d = Math.hypot(dx, dy) || 1;
+      const ux = dx / d, uy = dy / d;
+      const px = -uy, py = ux;
+      const w0 = p.planetR * 0.9;
+      const w1 = p.planetR * 0.45;
+      const x1 = p.planetX + px * w0, y1 = p.planetY + py * w0;
+      const x2 = p.planetX - px * w0, y2 = p.planetY - py * w0;
+      const x3 = p.planetX - px * w1 + ux * len, y3 = p.planetY - py * w1 + uy * len;
+      const x4 = p.planetX + px * w1 + ux * len, y4 = p.planetY + py * w1 + uy * len;
+      const gradId = `bq-shadow-${p.id}`;
       return /* @__PURE__ */ jsxs(Fragment, { children: [
-        orbits.map((o) => /* @__PURE__ */ jsx(
-          "circle",
+        /* @__PURE__ */ jsxs(
+          "linearGradient",
           {
-            cx,
-            cy,
-            r: o.radius,
-            fill: "none",
-            stroke: o.color,
-            strokeOpacity: 0.35,
-            strokeDasharray: "3 5"
-          },
-          "o-" + o.key
-        )),
-        orbits.map((o) => /* @__PURE__ */ jsx(
-          Label,
+            id: gradId,
+            gradientUnits: "userSpaceOnUse",
+            x1: p.planetX,
+            y1: p.planetY,
+            x2: p.planetX + ux * len,
+            y2: p.planetY + uy * len,
+            children: [
+              /* @__PURE__ */ jsx("stop", { offset: "0%", stopColor: "#000", stopOpacity: 0.32 }),
+              /* @__PURE__ */ jsx("stop", { offset: "100%", stopColor: "#000", stopOpacity: 0 })
+            ]
+          }
+        ),
+        /* @__PURE__ */ jsx(
+          "polygon",
           {
-            x: cx,
-            y: cy - o.radius - 6,
-            text: o.label,
-            color: o.color,
-            size: 9,
-            opacity: 0.85,
-            weight: 600,
-            uppercase: true
-          },
-          "ol-" + o.key
-        ))
+            points: `${x1},${y1} ${x2},${y2} ${x3},${y3} ${x4},${y4}`,
+            fill: `url(#${gradId})`,
+            pointerEvents: "none"
+          }
+        )
       ] });
-    }, [orbits, cx, cy, z]);
+    };
+    const orbitsLayer = useMemo(() => /* @__PURE__ */ jsx(Fragment, { children: orbits.map((o) => /* @__PURE__ */ jsx(
+      Orbit,
+      {
+        cx,
+        cy,
+        radius: o.radius,
+        color: o.color,
+        label: o.label
+      },
+      o.key
+    )) }), [orbits, cx, cy, z]);
     const edgesLayer = useMemo(() => /* @__PURE__ */ jsx(Fragment, { children: edges.map((e) => {
       const fromNid = String(e.data.fromNid), toNid = String(e.data.toNid);
       const a2 = positions.get(fromNid), b = positions.get(toNid);
@@ -1564,59 +1615,23 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
       }
       return /* @__PURE__ */ jsx(Fragment, { children: lines });
     }, [selectedLexId, highlightedNids, positions]);
-    const shadowsLayer = useMemo(() => /* @__PURE__ */ jsxs(Fragment, { children: [
-      /* @__PURE__ */ jsx("defs", { children: nodes.map((n) => {
-        const nid = String(n.data.nodeId);
-        const p = positions.get(nid);
-        if (!p) return null;
-        const dx = p.x - cx, dy = p.y - cy;
-        const len = Math.hypot(dx, dy) || 1;
-        const ux = dx / len, uy = dy / len;
-        const shadowLen = 110;
-        return /* @__PURE__ */ jsxs(
-          "linearGradient",
-          {
-            id: `bq-shadow-${nid}`,
-            gradientUnits: "userSpaceOnUse",
-            x1: p.x,
-            y1: p.y,
-            x2: p.x + ux * shadowLen,
-            y2: p.y + uy * shadowLen,
-            children: [
-              /* @__PURE__ */ jsx("stop", { offset: "0%", stopColor: "#000", stopOpacity: 0.32 }),
-              /* @__PURE__ */ jsx("stop", { offset: "100%", stopColor: "#000", stopOpacity: 0 })
-            ]
-          },
-          n.id
-        );
-      }) }),
-      nodes.map((n) => {
-        const nid = String(n.data.nodeId);
-        const p = positions.get(nid);
-        if (!p) return null;
-        const r = planetRadius(slidesByNodeId.get(n.id) || 0);
-        const dx = p.x - cx, dy = p.y - cy;
-        const len = Math.hypot(dx, dy) || 1;
-        const ux = dx / len, uy = dy / len;
-        const px = -uy, py = ux;
-        const shadowLen = 110;
-        const w0 = r * 0.9;
-        const w1 = r * 0.45;
-        const x1 = p.x + px * w0, y1 = p.y + py * w0;
-        const x2 = p.x - px * w0, y2 = p.y - py * w0;
-        const x3 = p.x - px * w1 + ux * shadowLen, y3 = p.y - py * w1 + uy * shadowLen;
-        const x4 = p.x + px * w1 + ux * shadowLen, y4 = p.y + py * w1 + uy * shadowLen;
-        return /* @__PURE__ */ jsx(
-          "polygon",
-          {
-            points: `${x1},${y1} ${x2},${y2} ${x3},${y3} ${x4},${y4}`,
-            fill: `url(#bq-shadow-${nid})`,
-            pointerEvents: "none"
-          },
-          n.id
-        );
-      })
-    ] }), [nodes, positions, slidesByNodeId, cx, cy]);
+    const shadowsLayer = useMemo(() => /* @__PURE__ */ jsx(Fragment, { children: nodes.map((n) => {
+      const nid = String(n.data.nodeId);
+      const p = positions.get(nid);
+      if (!p) return null;
+      return /* @__PURE__ */ jsx(
+        CastShadow,
+        {
+          id: nid,
+          sunX: cx,
+          sunY: cy,
+          planetX: p.x,
+          planetY: p.y,
+          planetR: planetRadius(slidesByNodeId.get(n.id) || 0)
+        },
+        n.id
+      );
+    }) }), [nodes, positions, slidesByNodeId, cx, cy]);
     const planetsLayer = useMemo(() => {
       return /* @__PURE__ */ jsx(Fragment, { children: nodes.map((n) => {
         const nid = String(n.data.nodeId);
@@ -1627,7 +1642,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
         const state = isSel ? "selected" : isHl ? "highlighted" : "idle";
         const lexs = lexsByNid.get(nid) || [];
         const baseR = planetRadius(slidesByNodeId.get(n.id) || 0);
-        const moonOrbitR = planetOuterR(baseR, state) + 8;
+        const moonOrbitR = planetGeom(baseR, state).moonOrbitR;
         return /* @__PURE__ */ jsxs(React.Fragment, { children: [
           /* @__PURE__ */ jsx(
             Planet,
@@ -1706,8 +1721,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
           onClick: onBackgroundClick,
           children: /* @__PURE__ */ jsxs("g", { ref: gRef, children: [
             orbitsLayer,
-            /* @__PURE__ */ jsx("circle", { cx, cy, r: 6, fill: COSMOS.star }),
-            /* @__PURE__ */ jsx("circle", { cx, cy, r: 14, fill: COSMOS.star, opacity: 0.2 }),
+            /* @__PURE__ */ jsx(Star, { cx, cy }),
             contextLayer,
             edgesLayer,
             highlightLines,
