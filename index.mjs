@@ -1,5 +1,5 @@
 import { jsx, Fragment, jsxs } from "react/jsx-runtime";
-import { useMemo, useRef, useState, useEffect } from "react";
+import { useMemo, useRef, useState, useId, useEffect } from "react";
 function tree_add(d) {
   const x2 = +this._x.call(null, d), y2 = +this._y.call(null, d);
   return add(this.cover(x2, y2), x2, y2, d);
@@ -3192,7 +3192,8 @@ const hashStr = (s) => {
   for (let i = 0; i < s.length; i++) h = h * 31 + s.charCodeAt(i) >>> 0;
   return h;
 };
-const planetRadius = (weight) => Math.min(8 + weight, 18);
+const planetRadius = (weight) => Math.max(6, Math.min(8 + weight, 18));
+const safeIdAtom = (s) => s.replace(/[^a-zA-Z0-9_-]/g, "_");
 const planetGeom = (baseR, state) => {
   const r = state === "selected" ? baseR + 4 : baseR;
   return {
@@ -3392,7 +3393,7 @@ const CastShadow = (p) => {
   const x2 = p.planetX - px * w0, y2 = p.planetY - py * w0;
   const x3 = p.planetX - px * w1 + ux * len, y3 = p.planetY - py * w1 + uy * len;
   const x4 = p.planetX + px * w1 + ux * len, y4 = p.planetY + py * w1 + uy * len;
-  const gradId = `cosmos-shadow-${p.id}`;
+  const gradId = `${p.instanceId}-shadow-${safeIdAtom(p.id)}`;
   return /* @__PURE__ */ jsxs(Fragment, { children: [
     /* @__PURE__ */ jsxs(
       "linearGradient",
@@ -3721,6 +3722,8 @@ function CosmosGraph(props) {
   const [zoomK, setZoomK] = useState(1);
   const [panning, setPanning] = useState(false);
   const [hovered, setHovered] = useState(null);
+  const rawInstanceId = useId();
+  const instanceId = useMemo(() => `cg-${rawInstanceId.replace(/[^a-zA-Z0-9_-]/g, "")}`, [rawInstanceId]);
   const [positions, setPositions] = useState(() => {
     const m2 = /* @__PURE__ */ new Map();
     for (const n of initialSimNodes) m2.set(n.id, { x: n.x ?? 0, y: n.y ?? 0 });
@@ -3895,6 +3898,7 @@ function CosmosGraph(props) {
       CastShadow,
       {
         id: n.nid,
+        instanceId,
         sunX: cx,
         sunY: cy,
         planetX: p.x,
@@ -3903,7 +3907,7 @@ function CosmosGraph(props) {
       },
       n.nid
     );
-  }) }), [visNodes, positions, baseRByNid, cx, cy, frontier]);
+  }) }), [visNodes, positions, baseRByNid, cx, cy, frontier, instanceId]);
   const sonarLayer = useMemo(() => {
     if (!selectedNid) return null;
     const p = positions.get(selectedNid);
