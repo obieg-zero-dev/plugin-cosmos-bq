@@ -1,9 +1,6 @@
 import type { PluginFactory, PostRecord } from '@obieg-zero/sdk'
-import {
-  CosmosGraph, COSMOS_TOKENS,
-  type CosmosNode, type CosmosMoon, type CosmosEdge, type CosmosContextEdge,
-  type CosmosBranch, type CosmosRelType,
-} from '@obieg-zero/cosmos-graph'
+import { CosmosGraph, COSMOS_TOKENS } from '@obieg-zero/cosmos-graph'
+import { useBqGraphData, catColor } from '@obieg-zero/bq-cosmos'
 
 const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
   const { useMemo, useEffect, useState } = React
@@ -11,19 +8,7 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
 
   const NO_BRANCH = '_none'
   const CONTEXT_BRANCH_PREFIX = 'kontekst'
-  const { tok, hashStr, planetRadius, PALETTE } = COSMOS_TOKENS
-
-  // BQ-specific kolory kategorii leksykonu (hardcoded mapping). Nieznane → hash → daisy palette.
-  const CAT_COLORS: Record<string, string> = {
-    motyw: '#f59e0b', topos: '#ef4444', gatunek: '#4a90e2',
-    srodek: '#9b59b6', srodek_stylistyczny: '#9b59b6',
-    postac: '#22c55e', pojecie: '#fde68a', 'pojęcie': '#fde68a',
-  }
-  const catColor = (c: string): string => {
-    if (CAT_COLORS[c]) return CAT_COLORS[c]
-    if (!c) return tok(PALETTE[0])
-    return tok(PALETTE[hashStr(c) % PALETTE.length])
-  }
+  const { tok, PALETTE } = COSMOS_TOKENS
 
   const useNav = sdk.create(() => ({
     treeId: null as string | null,
@@ -153,146 +138,24 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
     )
   }
 
-  // GraphView = adapter: store records → CosmosGraph props.
+  // GraphView — używa wspólnego adapter'a @obieg-zero/bq-cosmos. Bez gating (reader mode: wszystko widoczne).
   function GraphView() {
     const { treeId, selectedNid, selectedLexId } = useNav()
-    const nodes    = store.useChildren(treeId || '', 'node') as PostRecord[]
-    const edges    = store.useChildren(treeId || '', 'edge') as PostRecord[]
-    const branches = store.useChildren(treeId || '', 'branch') as PostRecord[]
-    const relTypes = store.useChildren(treeId || '', 'relType') as PostRecord[]
-    const lexicons = store.useChildren(treeId || '', 'lexicon') as PostRecord[]
-    const allLexNodes = store.usePosts('lexNode') as PostRecord[]
-    const allContent = store.usePosts('content') as PostRecord[]
+    const data = useBqGraphData(store as any, treeId, { selectedMoonId: selectedLexId })
 
-    // Liczba slajdów per węzeł — wpływa na rozmiar planety (więcej treści = większa).
-    const slidesByNodeId = useMemo(() => {
-      const m = new Map<string, number>()
-      for (const c of allContent) {
-        if (String(c.data.contentType) === 'quiz') continue
-        m.set(c.parentId, (m.get(c.parentId) || 0) + 1)
-      }
-      return m
-    }, [allContent])
-
-    // Mapa lex.id → set nidów które ten termin zawierają (dla highlight + related).
-    const nidsByLex = useMemo(() => {
-      const lexById = new Map(lexicons.map(l => [l.id, l]))
-      const m = new Map<string, Set<string>>()
-      for (const ln of allLexNodes) {
-        const lex = lexById.get(ln.parentId); if (!lex) continue
-        if (!m.has(lex.id)) m.set(lex.id, new Set())
-        m.get(lex.id)!.add(String(ln.data.nid))
-      }
-      return m
-    }, [lexicons, allLexNodes])
-
-    // Mapa nid → leksykony obecne w węźle (dla relatedMoonIds).
-    const lexsByNid = useMemo(() => {
-      const lexById = new Map(lexicons.map(l => [l.id, l]))
-      const m = new Map<string, PostRecord[]>()
-      for (const ln of allLexNodes) {
-        const lex = lexById.get(ln.parentId); if (!lex) continue
-        const nid = String(ln.data.nid)
-        if (!m.has(nid)) m.set(nid, [])
-        m.get(nid)!.push(lex)
-      }
-      return m
-    }, [lexicons, allLexNodes])
-
-    // Krawędzie kontekstowe: pary węzłów współwystępujące w tych samych terminach (BQ-specific co-occurrence).
-    const cosmosContextEdges: CosmosContextEdge[] = useMemo(() => {
-      const map = new Map<string, { from: string; to: string; rels: Map<string, number> }>()
-      for (const lex of lexicons) {
-        const nidsArr = Array.from(nidsByLex.get(lex.id) || [])
-        if (nidsArr.length < 2) continue
-        const rel = String(lex.data.relation || 'inne')
-        for (let i = 0; i < nidsArr.length; i++) {
-          for (let j = i + 1; j < nidsArr.length; j++) {
-            const [a, b] = [nidsArr[i], nidsArr[j]].sort()
-            const key = `${a}:${b}`
-            if (!map.has(key)) map.set(key, { from: a, to: b, rels: new Map() })
-            const e = map.get(key)!
-            e.rels.set(rel, (e.rels.get(rel) || 0) + 1)
-          }
-        }
-      }
-      const out: CosmosContextEdge[] = []
-      for (const { from, to, rels } of map.values()) {
-        let best = 'inne', bestCount = 0, total = 0
-        for (const [r, c] of rels) { total += c; if (c > bestCount) { best = r; bestCount = c } }
-        out.push({ from, to, relation: best, count: total })
-      }
-      return out
-    }, [lexicons, nidsByLex])
-
-    // === Adaptery: PostRecord[] → Cosmos types
-    const cosmosNodes: CosmosNode[] = useMemo(() => nodes.map(n => ({
-      nid: String(n.data.nodeId),
-      title: String(n.data.title),
-      branch: String(n.data.branch || ''),
-      tier: String(n.data.tier ?? ''),
-      size: planetRadius(slidesByNodeId.get(n.id) || 0),
-    })), [nodes, slidesByNodeId])
-
-    const cosmosBranches: CosmosBranch[] = useMemo(() => branches.map(b => ({
-      key: String(b.data.key),
-      label: String(b.data.label),
-      color: String(b.data.color || ''),
-    })), [branches])
-
-    const cosmosEdges: CosmosEdge[] = useMemo(() => edges.map(e => ({
-      from: String(e.data.fromNid),
-      to: String(e.data.toNid),
-      type: e.data.type ? String(e.data.type) : undefined,
-    })), [edges])
-
-    const cosmosRelTypes: CosmosRelType[] = useMemo(() => relTypes.map(r => ({
-      key: String(r.data.key),
-      label: String(r.data.label),
-      color: String(r.data.color || ''),
-    })), [relTypes])
-
-    const cosmosMoons: CosmosMoon[] = useMemo(() => {
-      const lexById = new Map(lexicons.map(l => [l.id, l]))
-      const result: CosmosMoon[] = []
-      for (const ln of allLexNodes) {
-        const lex = lexById.get(ln.parentId); if (!lex) continue
-        result.push({
-          nodeId: String(ln.data.nid),
-          id: lex.id,
-          color: catColor(String(lex.data.category || '')),
-          title: `${String(lex.data.term)} · ${String(lex.data.category || 'inne')}`,
-        })
-      }
-      return result
-    }, [lexicons, allLexNodes])
-
-    const highlightedNids = selectedLexId ? nidsByLex.get(selectedLexId) : undefined
-
-    const relatedMoonIds = useMemo(() => {
-      if (!selectedLexId) return undefined
-      const myNids = nidsByLex.get(selectedLexId) || new Set<string>()
-      const ids = new Set<string>()
-      for (const nid of myNids) {
-        const here = lexsByNid.get(nid) || []
-        for (const l of here) if (l.id !== selectedLexId) ids.add(l.id)
-      }
-      return ids
-    }, [selectedLexId, nidsByLex, lexsByNid])
-
-    if (nodes.length === 0) return <ui.Placeholder text="Drzewo nie ma węzłów" />
+    if (data.rawNodes.length === 0) return <ui.Placeholder text="Drzewo nie ma węzłów" />
 
     return <CosmosGraph
-      nodes={cosmosNodes}
-      moons={cosmosMoons}
-      edges={cosmosEdges}
-      contextEdges={cosmosContextEdges}
-      branches={cosmosBranches}
-      relTypes={cosmosRelTypes}
+      nodes={data.nodes}
+      moons={data.moons}
+      edges={data.edges}
+      contextEdges={data.contextEdges}
+      branches={data.branches}
+      relTypes={data.relTypes}
       selectedNid={selectedNid}
       selectedMoonId={selectedLexId}
-      highlightedNids={highlightedNids}
-      relatedMoonIds={relatedMoonIds}
+      highlightedNids={data.highlightedNids}
+      relatedMoonIds={data.relatedMoonIds}
       onSelectNode={(nid) => selectByNid(treeId!, nid)}
       onSelectMoon={selectByLex}
       onDeselect={() => useNav.setState({ selectedNid: null, selectedLexId: null })}

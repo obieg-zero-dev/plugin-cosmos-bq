@@ -1,9 +1,10 @@
 {
   "name": "@obieg-zero/plugin-cosmos-bq",
-  "version": "0.7.0",
-  "description": "Kosmos BQ — adapter store→CosmosGraph + panele boczne (renderer w @obieg-zero/cosmos-graph)",
+  "version": "0.8.0",
+  "description": "Kosmos BQ — UI panele + thin wrapper na useBqGraphData + CosmosGraph (reader mode)",
   "private": true,
   "dependencies": {
-    "@obieg-zero/cosmos-graph": "*"
+    "@obieg-zero/cosmos-graph": "*",
+    "@obieg-zero/bq-cosmos": "*"
   }
 }
