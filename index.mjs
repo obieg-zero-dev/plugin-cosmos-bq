@@ -4037,7 +4037,7 @@ function CosmosGraph(props) {
       });
     }
     return /* @__PURE__ */ jsx(Fragment, { children: plates });
-  }, [selectedMoonId, visNodes, positions, moonsByNid, baseRByNid, frontier, hits, selectedNid, highlightedNids]);
+  }, [selectedMoonId, visNodes, positions, moonsByNid, baseRByNid, frontier, hits, selectedNid, highlightedNids, instanceId]);
   const planetsLayer = useMemo(() => /* @__PURE__ */ jsx(Fragment, { children: visNodes.map((n) => {
     const p = positions.get(n.nid);
     if (!p) return null;
@@ -4210,6 +4210,7 @@ const catColor = (c2) => {
   return COSMOS_TOKENS.tok(COSMOS_TOKENS.PALETTE[COSMOS_TOKENS.hashStr(c2) % COSMOS_TOKENS.PALETTE.length]);
 };
 const EDGE_KEY_SEP = "\0";
+const EMPTY_NID_SET = /* @__PURE__ */ new Set();
 function useBqGraphData(store, treeId, opts = {}) {
   const tid = treeId || "";
   const { gateByDiscoveries = false, selectedMoonId = null, selectedPostId = null } = opts;
@@ -4320,11 +4321,11 @@ function useBqGraphData(store, treeId, opts = {}) {
   }, [rawLexicons, nidsByLex, discoveredTermIds]);
   const highlightedNids = useMemo(() => {
     if (!selectedMoonId) return void 0;
-    return nidsByLex.get(selectedMoonId) || /* @__PURE__ */ new Set();
+    return nidsByLex.get(selectedMoonId) || EMPTY_NID_SET;
   }, [selectedMoonId, nidsByLex]);
   const relatedMoonIds = useMemo(() => {
     if (!selectedMoonId) return void 0;
-    const myNids = nidsByLex.get(selectedMoonId) || /* @__PURE__ */ new Set();
+    const myNids = nidsByLex.get(selectedMoonId) || EMPTY_NID_SET;
     const ids = /* @__PURE__ */ new Set();
     for (const nid of myNids) {
       const here = lexsByNid.get(nid) || [];
