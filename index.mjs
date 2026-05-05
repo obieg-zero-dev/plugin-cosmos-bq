@@ -3179,8 +3179,10 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
     ringSize: 11,
     // outer rounded rect dla related (powiązany termin)
     ringRx: 3,
-    orbitGap: 14
+    orbitGap: 14,
     // ile px od krawędzi planety (poprzednio 8 — było zbyt blisko)
+    liftOff: 1.5
+    // przesunięcie ciemnej tarczy "lift" w dół (chunky 3D, jak Planet)
   };
   const SONAR = {
     rings: 2,
@@ -3216,7 +3218,16 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
     "pojęcie": "#fde68a"
   };
   const PALETTE = ["primary", "accent", "success", "warning", "secondary", "info", "error", "neutral"];
-  const catColor = (c2) => CAT_COLORS[c2] || COSMOS.fallback;
+  const hashStr = (s) => {
+    let h = 0;
+    for (let i = 0; i < s.length; i++) h = h * 31 + s.charCodeAt(i) >>> 0;
+    return h;
+  };
+  const catColor = (c2) => {
+    if (CAT_COLORS[c2]) return CAT_COLORS[c2];
+    if (!c2) return tok(PALETTE[0]);
+    return tok(PALETTE[hashStr(c2) % PALETTE.length]);
+  };
   const branchOf = (n) => String(n.data.branch || "") || NO_BRANCH;
   const usedBranchInfos = (nodes, branches) => {
     const byKey = new Map(branches.map((b) => [String(b.data.key), b]));
@@ -3749,6 +3760,8 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
     };
     const Moon = (p) => {
       const size = p.selected ? MOON.sizeSelected : MOON.size;
+      const x0 = p.x - size / 2;
+      const y0 = p.y - size / 2;
       return /* @__PURE__ */ jsxs("g", { children: [
         p.related && /* @__PURE__ */ jsx(
           "rect",
@@ -3769,8 +3782,21 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
         /* @__PURE__ */ jsx(
           "rect",
           {
-            x: p.x - size / 2,
-            y: p.y - size / 2,
+            x: x0,
+            y: y0 + MOON.liftOff,
+            width: size,
+            height: size,
+            rx: MOON.rx,
+            ry: MOON.rx,
+            fill: darken(p.color),
+            pointerEvents: "none"
+          }
+        ),
+        /* @__PURE__ */ jsx(
+          "rect",
+          {
+            x: x0,
+            y: y0,
             width: size,
             height: size,
             rx: MOON.rx,

@@ -66,6 +66,7 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
     ringSize: 11,        // outer rounded rect dla related (powiązany termin)
     ringRx: 3,
     orbitGap: 14,        // ile px od krawędzi planety (poprzednio 8 — było zbyt blisko)
+    liftOff: 1.5,        // przesunięcie ciemnej tarczy "lift" w dół (chunky 3D, jak Planet)
   }
 
   // === Sonar/ping na zaznaczonej planecie. ASMR-breath: rzadkie, długie, spokojne pulsowanie.
@@ -106,9 +107,18 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
     srodek: '#9b59b6', srodek_stylistyczny: '#9b59b6',
     postac: '#22c55e', pojecie: '#fde68a', 'pojęcie': '#fde68a',
   }
-  // Fallback paleta dla gałęzi bez przypisanego koloru (rotacyjnie).
+  // Paleta daisy tokenów — zarówno dla gałęzi (rotacyjnie) jak i dla nieznanych kategorii leksykonu (przez hash → deterministyczne, ale każda kategoria dostaje własny żywy kolor zamiast szarego).
   const PALETTE = ['primary', 'accent', 'success', 'warning', 'secondary', 'info', 'error', 'neutral']
-  const catColor = (c: string) => CAT_COLORS[c] || COSMOS.fallback
+  const hashStr = (s: string) => {
+    let h = 0
+    for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0
+    return h
+  }
+  const catColor = (c: string): string => {
+    if (CAT_COLORS[c]) return CAT_COLORS[c]
+    if (!c) return tok(PALETTE[0])  // pusty string → primary, zamiast szarego
+    return tok(PALETTE[hashStr(c) % PALETTE.length])
+  }
   const branchOf = (n: PostRecord) => String(n.data.branch || '') || NO_BRANCH
 
   type BranchInfo = { key: string; label: string; color: string; def?: PostRecord }
@@ -656,7 +666,7 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
       )
     }
 
-    // Mini-żeton kontekstu: rounded-square chip à la duolingo. Saturowany kolor, biała ramka na zaznaczeniu.
+    // Mini-żeton kontekstu: rounded-square chip à la duolingo. Saturowany kolor + chunky lift (jak Planet).
     const Moon = (p: {
       x: number; y: number
       color: string
@@ -666,6 +676,8 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
       onClick?: () => void
     }) => {
       const size = p.selected ? MOON.sizeSelected : MOON.size
+      const x0 = p.x - size / 2
+      const y0 = p.y - size / 2
       return (
         <g>
           {p.related && (
@@ -677,8 +689,15 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
               strokeOpacity={0.55} strokeWidth={1}
               pointerEvents="none" />
           )}
+          {/* Lift: ciemniejsza tarcza pod spodem — chunky 3D feel */}
           <rect
-            x={p.x - size / 2} y={p.y - size / 2}
+            x={x0} y={y0 + MOON.liftOff}
+            width={size} height={size}
+            rx={MOON.rx} ry={MOON.rx}
+            fill={darken(p.color)} pointerEvents="none" />
+          {/* Korpus */}
+          <rect
+            x={x0} y={y0}
             width={size} height={size}
             rx={MOON.rx} ry={MOON.rx}
             fill={p.color}
