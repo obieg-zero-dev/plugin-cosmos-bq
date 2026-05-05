@@ -817,6 +817,12 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
   const NO_BRANCH = "_none";
   const CONTEXT_BRANCH_PREFIX = "kontekst";
   const planetRadius = (slides) => Math.min(8 + slides, 18);
+  const darken = (hex, amt = 0.45) => {
+    const m2 = hex.match(/^#([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i);
+    if (!m2) return hex;
+    const f = (h) => Math.max(0, Math.round(parseInt(h, 16) * (1 - amt)));
+    return `rgb(${f(m2[1])},${f(m2[2])},${f(m2[3])})`;
+  };
   const useNav = sdk.create(() => ({
     treeId: null,
     selectedNid: null,
@@ -949,7 +955,6 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
                 {
                   active: selectedNid === nid,
                   label: String(n.data.title),
-                  detail: tierLabel(g.key, n.data.tier),
                   onClick: () => selectByNid(treeId, nid)
                 },
                 n.id
@@ -1445,6 +1450,60 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
       }
       return /* @__PURE__ */ jsx(Fragment, { children: lines });
     }, [selectedLexId, highlightedNids, positions]);
+    const shadowsLayer = useMemo(() => /* @__PURE__ */ jsxs(Fragment, { children: [
+      /* @__PURE__ */ jsx("defs", { children: nodes.map((n) => {
+        const nid = String(n.data.nodeId);
+        const p = positions.get(nid);
+        if (!p) return null;
+        const dx = p.x - cx, dy = p.y - cy;
+        const len = Math.hypot(dx, dy) || 1;
+        const ux = dx / len, uy = dy / len;
+        const shadowLen = 110;
+        return /* @__PURE__ */ jsxs(
+          "linearGradient",
+          {
+            id: `bq-shadow-${nid}`,
+            gradientUnits: "userSpaceOnUse",
+            x1: p.x,
+            y1: p.y,
+            x2: p.x + ux * shadowLen,
+            y2: p.y + uy * shadowLen,
+            children: [
+              /* @__PURE__ */ jsx("stop", { offset: "0%", stopColor: "#000", stopOpacity: 0.32 }),
+              /* @__PURE__ */ jsx("stop", { offset: "100%", stopColor: "#000", stopOpacity: 0 })
+            ]
+          },
+          n.id
+        );
+      }) }),
+      nodes.map((n) => {
+        const nid = String(n.data.nodeId);
+        const p = positions.get(nid);
+        if (!p) return null;
+        const slides = slidesByNodeId.get(n.id) || 0;
+        const r = Math.min(8 + slides * 1, 18);
+        const dx = p.x - cx, dy = p.y - cy;
+        const len = Math.hypot(dx, dy) || 1;
+        const ux = dx / len, uy = dy / len;
+        const px = -uy, py = ux;
+        const shadowLen = 110;
+        const w0 = r * 0.9;
+        const w1 = r * 0.45;
+        const x1 = p.x + px * w0, y1 = p.y + py * w0;
+        const x2 = p.x - px * w0, y2 = p.y - py * w0;
+        const x3 = p.x - px * w1 + ux * shadowLen, y3 = p.y - py * w1 + uy * shadowLen;
+        const x4 = p.x + px * w1 + ux * shadowLen, y4 = p.y + py * w1 + uy * shadowLen;
+        return /* @__PURE__ */ jsx(
+          "polygon",
+          {
+            points: `${x1},${y1} ${x2},${y2} ${x3},${y3} ${x4},${y4}`,
+            fill: `url(#bq-shadow-${nid})`,
+            pointerEvents: "none"
+          },
+          n.id
+        );
+      })
+    ] }), [nodes, positions, slidesByNodeId, cx, cy]);
     const planetsLayer = useMemo(() => {
       return /* @__PURE__ */ jsx(Fragment, { children: nodes.map((n) => {
         const nid = String(n.data.nodeId);
@@ -1476,6 +1535,16 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
                   r: haloR,
                   fill: isHl ? "#fde68a" : p.color,
                   opacity: 0.3
+                }
+              ),
+              /* @__PURE__ */ jsx(
+                "circle",
+                {
+                  cx: p.x,
+                  cy: p.y + Math.max(2, r * 0.18),
+                  r,
+                  fill: darken(p.color),
+                  style: { pointerEvents: "none" }
                 }
               ),
               /* @__PURE__ */ jsx(
@@ -1593,6 +1662,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
             contextLayer,
             edgesLayer,
             highlightLines,
+            shadowsLayer,
             planetsLayer,
             labelsLayer
           ] })
@@ -1613,34 +1683,27 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
   function CenterPanel() {
     return /* @__PURE__ */ jsx(ui.Page, { children: /* @__PURE__ */ jsx(GraphView, {}) });
   }
-  const buildTerms = (lexs, formMap) => lexs.map((lex) => ({
-    id: lex.id,
-    matchers: [String(lex.data.term), ...formMap.get(lex.id) || []]
-  }));
+  const buildTerms = (lexs) => lexs.map((lex) => ({ id: lex.id, term: String(lex.data.term) }));
   function SlidesViewer({ node, myLexs }) {
     const allContent = store.useChildren(node.id, "content");
-    const allForms = store.usePosts("form");
     const slides = useMemo(() => allContent.filter((c2) => String(c2.data.contentType) !== "quiz"), [allContent]);
-    const formMap = useMemo(() => {
-      const m2 = /* @__PURE__ */ new Map();
-      for (const f of allForms) {
-        const lid = f.parentId;
-        if (!lid) continue;
-        const a2 = m2.get(lid) || [];
-        a2.push(String(f.data.value));
-        m2.set(lid, a2);
-      }
-      return m2;
-    }, [allForms]);
-    const terms = useMemo(() => buildTerms(myLexs, formMap), [myLexs, formMap]);
+    const terms = useMemo(() => buildTerms(myLexs), [myLexs]);
     const [idx, setIdx] = useState(0);
+    const [loading, setLoading] = useState(false);
     useEffect(() => {
       setIdx(0);
+    }, [node.id]);
+    useEffect(() => {
+      var _a;
+      const h = (_a = sdk.shared.getState()) == null ? void 0 : _a.bqHelpers;
+      if (!(h == null ? void 0 : h.loadNodeContent)) return;
+      setLoading(true);
+      h.loadNodeContent(node.parentId, String(node.data.nodeId)).finally(() => setLoading(false));
     }, [node.id]);
     const safeIdx = Math.min(idx, Math.max(0, slides.length - 1));
     const slide = slides[safeIdx];
     if (slides.length === 0) {
-      return /* @__PURE__ */ jsx(ui.Text, { size: "xs", muted: true, children: "Brak treści dla tego węzła." });
+      return /* @__PURE__ */ jsx(ui.Text, { size: "xs", muted: true, children: loading ? "Wczytuję treści…" : "Brak treści dla tego węzła." });
     }
     return /* @__PURE__ */ jsxs(ui.Stack, { gap: "sm", children: [
       /* @__PURE__ */ jsxs(ui.Row, { justify: "between", children: [
