@@ -3170,16 +3170,16 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
   };
   const ZOOM = { min: 0.5, max: 5, resetMs: 350 };
   const SONAR = {
-    rings: 3,
-    // ile pulsów rozchodzi się równocześnie (staggered)
-    duration: 1.6,
-    // s — krótszy cykl = częstszy puls (przy 3 ringach pulsuje co ~0.53s)
+    rings: 2,
+    // dwa ringi w locie (jeden jeszcze wybrzmiewa gdy drugi startuje)
+    duration: 5,
+    // s — długi cykl. Przy 2 ringach stagger = 2.5s — puls co ~2.5s, tempo oddechu
     scaleFrom: 1,
     scaleTo: 2.6,
-    opacityFrom: 0.6,
-    // delikatnie podbite żeby grubszy stroke nie krzyczał
+    opacityFrom: 0.55,
+    // delikatnie, długo w polu widzenia
     strokeWidth: 2.2
-    // grubsza linia
+    // grubsza linia (zachowane)
   };
   const useNav = sdk.create(() => ({
     treeId: null,
