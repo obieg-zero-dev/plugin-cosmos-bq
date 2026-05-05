@@ -817,12 +817,26 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
   const NO_BRANCH = "_none";
   const CONTEXT_BRANCH_PREFIX = "kontekst";
   const planetRadius = (slides) => Math.min(8 + slides, 18);
-  const darken = (hex, amt = 0.45) => {
-    const m2 = hex.match(/^#([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i);
-    if (!m2) return hex;
-    const f = (h) => Math.max(0, Math.round(parseInt(h, 16) * (1 - amt)));
-    return `rgb(${f(m2[1])},${f(m2[2])},${f(m2[3])})`;
+  const COSMOS = {
+    star: "#fde68a",
+    bgFrom: "#1a2440",
+    bgTo: "#0a0e1a",
+    label: "#fff",
+    labelStroke: "#0a0e1a",
+    highlight: "#fde68a",
+    edgeLabel: "#cbd5e1",
+    fallback: "#94a3b8",
+    hud: "#cbd5e1",
+    hudBg: "rgba(10,14,26,0.7)"
   };
+  const DAISY_TOKENS = /* @__PURE__ */ new Set(["primary", "secondary", "accent", "info", "success", "warning", "error", "neutral"]);
+  const tok = (name) => {
+    if (!name) return COSMOS.fallback;
+    if (name.startsWith("#") || name.startsWith("var(") || name.startsWith("rgb")) return name;
+    if (DAISY_TOKENS.has(name)) return `var(--color-${name})`;
+    return COSMOS.fallback;
+  };
+  const darken = (color, amt = 0.45) => `color-mix(in srgb, ${color} ${Math.round((1 - amt) * 100)}%, black)`;
   const useNav = sdk.create(() => ({
     treeId: null,
     selectedNid: null,
@@ -844,18 +858,8 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
     pojecie: "#fde68a",
     "pojęcie": "#fde68a"
   };
-  const COLOR_MAP = {
-    primary: "#4a90e2",
-    secondary: "#9b59b6",
-    accent: "#e91e63",
-    info: "#00bcd4",
-    success: "#22c55e",
-    warning: "#f59e0b",
-    error: "#ef4444",
-    neutral: "#94a3b8"
-  };
-  const PALETTE = ["#4a90e2", "#e91e63", "#22c55e", "#f59e0b", "#9b59b6", "#00bcd4", "#ef4444", "#94a3b8"];
-  const catColor = (c2) => CAT_COLORS[c2] || "#94a3b8";
+  const PALETTE = ["primary", "accent", "success", "warning", "secondary", "info", "error", "neutral"];
+  const catColor = (c2) => CAT_COLORS[c2] || COSMOS.fallback;
   const branchOf = (n) => String(n.data.branch || "") || NO_BRANCH;
   const usedBranchInfos = (nodes, branches) => {
     const byKey = new Map(branches.map((b) => [String(b.data.key), b]));
@@ -871,10 +875,11 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
     if (nodes.some((n) => branchOf(n) === NO_BRANCH)) used.push(NO_BRANCH);
     return used.map((k, i) => {
       const def = byKey.get(k);
+      const colorRaw = String((def == null ? void 0 : def.data.color) || "");
       return {
         key: k,
         label: def ? String(def.data.label) : "bez gałęzi",
-        color: COLOR_MAP[String((def == null ? void 0 : def.data.color) || "")] || PALETTE[i % PALETTE.length],
+        color: colorRaw ? tok(colorRaw) : tok(PALETTE[i % PALETTE.length]),
         def
       };
     });
@@ -1001,7 +1006,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
       const orbitColors = new Map(usedBranchInfos(nodes, branches).map((b) => [b.key, b.color]));
       const m2 = /* @__PURE__ */ new Map();
       for (const n of nodes) {
-        m2.set(String(n.data.nodeId), orbitColors.get(branchOf(n)) || "#94a3b8");
+        m2.set(String(n.data.nodeId), orbitColors.get(branchOf(n)) || COSMOS.fallback);
       }
       return m2;
     }, [nodes, branches]);
@@ -1052,7 +1057,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
           to,
           relation: best,
           relLabel: def ? String(def.data.label) : best,
-          relColor: COLOR_MAP[String((def == null ? void 0 : def.data.color) || "")] || "#94a3b8",
+          relColor: tok(String((def == null ? void 0 : def.data.color) || "")),
           count: total,
           strength: Math.min(0.4 + total * 0.15, 0.9)
         });
@@ -1283,7 +1288,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
             fontWeight: p.weight ?? 500,
             textTransform: p.uppercase ? "uppercase" : "none"
           },
-          stroke: "#0a0e1a",
+          stroke: COSMOS.labelStroke,
           strokeWidth: sw,
           strokeOpacity: 0.7,
           children: p.text
@@ -1390,12 +1395,12 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
         {
           a: a2,
           b,
-          color: branchColorByNid.get(toNid) || "#94a3b8",
+          color: branchColorByNid.get(toNid) || COSMOS.fallback,
           op,
           sw: hasType ? op > 0.3 ? 2 : 1.5 : op > 0.3 ? 1.5 : 1,
           dashed: contextNids.has(fromNid) || contextNids.has(toNid),
           arrow: hasType ? { targetR: planetRByNid.get(toNid) || 8 } : void 0,
-          label: e.data.type && !!neighborSet && isEdgeFocused(fromNid, toNid) ? { text: String(e.data.type), color: "#cbd5e1" } : void 0
+          label: e.data.type && !!neighborSet && isEdgeFocused(fromNid, toNid) ? { text: String(e.data.type), color: COSMOS.edgeLabel } : void 0
         }
       ) }, e.id);
     }) }), [edges, positions, neighborSet, focusNid, z, contextNids, planetRByNid, branchColorByNid]);
@@ -1433,15 +1438,13 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
           if (!a2 || !b) continue;
           lines.push(
             /* @__PURE__ */ jsx(
-              "line",
+              Edge,
               {
-                x1: a2.x,
-                y1: a2.y,
-                x2: b.x,
-                y2: b.y,
-                stroke: "#fde68a",
-                strokeOpacity: 0.55,
-                strokeWidth: 1.5
+                a: a2,
+                b,
+                color: COSMOS.highlight,
+                op: 0.55,
+                sw: 1.5
               },
               `hl-${i}-${j}`
             )
@@ -1533,7 +1536,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
                   cx: p.x,
                   cy: p.y,
                   r: haloR,
-                  fill: isHl ? "#fde68a" : p.color,
+                  fill: isHl ? COSMOS.highlight : p.color,
                   opacity: 0.3
                 }
               ),
@@ -1554,7 +1557,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
                   cy: p.y,
                   r,
                   fill: p.color,
-                  stroke: isSel || isHl ? "#fff" : "none",
+                  stroke: isSel || isHl ? COSMOS.label : "none",
                   strokeWidth: 2,
                   style: { cursor: "pointer" },
                   onClick: (e) => {
@@ -1570,7 +1573,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
                   y: p.y + tierFs * 0.35,
                   textAnchor: "middle",
                   fontSize: tierFs,
-                  fill: "#0a0e1a",
+                  fill: COSMOS.labelStroke,
                   fontWeight: 700,
                   style: { pointerEvents: "none" },
                   children: tier
@@ -1584,7 +1587,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
                 const moonSel = selectedLexId === lex.id;
                 const moonRel = relatedLexIds.has(lex.id);
                 return /* @__PURE__ */ jsxs("g", { children: [
-                  moonRel && /* @__PURE__ */ jsx("circle", { cx: mx, cy: my, r: 5, fill: "none", stroke: "#fde68a", strokeOpacity: 0.55, strokeWidth: 1 }),
+                  moonRel && /* @__PURE__ */ jsx("circle", { cx: mx, cy: my, r: 5, fill: "none", stroke: COSMOS.highlight, strokeOpacity: 0.55, strokeWidth: 1 }),
                   /* @__PURE__ */ jsx(
                     "circle",
                     {
@@ -1592,7 +1595,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
                       cy: my,
                       r: moonSel ? 4 : 2.6,
                       fill: mc,
-                      stroke: moonSel ? "#fff" : "none",
+                      stroke: moonSel ? COSMOS.label : "none",
                       strokeWidth: 1,
                       style: { cursor: "pointer" },
                       onClick: (e) => {
@@ -1632,7 +1635,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
             x: p.x,
             y: p.y + baseR + 14,
             text: String(n.data.title),
-            color: "#fff",
+            color: COSMOS.label,
             size: 10,
             opacity: op,
             weight: 500
@@ -1648,7 +1651,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
           ref: svgRef,
           viewBox: "0 0 600 600",
           preserveAspectRatio: "xMidYMid meet",
-          style: { display: "block", width: "100%", height: "100%", background: "radial-gradient(ellipse at center, #1a2440 0%, #0a0e1a 100%)", borderRadius: 8, cursor: dragging ? "grabbing" : "grab", userSelect: "none" },
+          style: { display: "block", width: "100%", height: "100%", background: `radial-gradient(ellipse at center, ${COSMOS.bgFrom} 0%, ${COSMOS.bgTo} 100%)`, borderRadius: 8, cursor: dragging ? "grabbing" : "grab", userSelect: "none" },
           onWheel,
           onMouseDown,
           onMouseMove,
@@ -1657,8 +1660,8 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
           onClick: onBackgroundClick,
           children: /* @__PURE__ */ jsxs("g", { ref: gRef, children: [
             orbitsLayer,
-            /* @__PURE__ */ jsx("circle", { cx, cy, r: 6, fill: "#fde68a" }),
-            /* @__PURE__ */ jsx("circle", { cx, cy, r: 14, fill: "#fde68a", opacity: 0.2 }),
+            /* @__PURE__ */ jsx("circle", { cx, cy, r: 6, fill: COSMOS.star }),
+            /* @__PURE__ */ jsx("circle", { cx, cy, r: 14, fill: COSMOS.star, opacity: 0.2 }),
             contextLayer,
             edgesLayer,
             highlightLines,
@@ -1668,8 +1671,8 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
           ] })
         }
       ),
-      /* @__PURE__ */ jsxs("div", { style: { position: "absolute", top: 8, right: 8, display: "flex", gap: 6, alignItems: "center", background: "rgba(10,14,26,0.7)", padding: "4px 8px", borderRadius: 6, fontSize: 11, color: "#cbd5e1" }, children: [
-        /* @__PURE__ */ jsxs("span", { children: [
+      /* @__PURE__ */ jsx("div", { style: { position: "absolute", top: 8, right: 8, background: COSMOS.hudBg, padding: "4px 8px", borderRadius: 6, color: COSMOS.hud }, children: /* @__PURE__ */ jsxs(ui.Row, { children: [
+        /* @__PURE__ */ jsxs(ui.Text, { size: "xs", children: [
           zoomPct,
           "%"
         ] }),
@@ -1677,7 +1680,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
           /* @__PURE__ */ jsx(Maximize2, { size: 12 }),
           " Reset"
         ] })
-      ] })
+      ] }) })
     ] });
   }
   function CenterPanel() {

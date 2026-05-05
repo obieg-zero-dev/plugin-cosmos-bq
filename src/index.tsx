@@ -9,12 +9,33 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
   const CONTEXT_BRANCH_PREFIX = 'kontekst'
   const planetRadius = (slides: number) => Math.min(8 + slides, 18)
 
-  const darken = (hex: string, amt = 0.45): string => {
-    const m = hex.match(/^#([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i)
-    if (!m) return hex
-    const f = (h: string) => Math.max(0, Math.round(parseInt(h, 16) * (1 - amt)))
-    return `rgb(${f(m[1])},${f(m[2])},${f(m[3])})`
+  // Kosmiczna paleta (chrome SVG — niezależne od motywu, definiuje "kosmos" look).
+  const COSMOS = {
+    star: '#fde68a',
+    bgFrom: '#1a2440',
+    bgTo: '#0a0e1a',
+    label: '#fff',
+    labelStroke: '#0a0e1a',
+    highlight: '#fde68a',
+    edgeLabel: '#cbd5e1',
+    fallback: '#94a3b8',
+    hud: '#cbd5e1',
+    hudBg: 'rgba(10,14,26,0.7)',
   }
+
+  // Daisy tokeny → CSS vars (zgodnie z @obieg-zero/bq-graph).
+  // Branch/relType color w danych to nazwa tokenu ('primary', 'accent'...) — rozwiązujemy do var(--color-X).
+  const DAISY_TOKENS = new Set(['primary', 'secondary', 'accent', 'info', 'success', 'warning', 'error', 'neutral'])
+  const tok = (name: string): string => {
+    if (!name) return COSMOS.fallback
+    if (name.startsWith('#') || name.startsWith('var(') || name.startsWith('rgb')) return name
+    if (DAISY_TOKENS.has(name)) return `var(--color-${name})`
+    return COSMOS.fallback
+  }
+
+  // Color-mix darken — działa zarówno na hex jak i var().
+  const darken = (color: string, amt = 0.45): string =>
+    `color-mix(in srgb, ${color} ${Math.round((1 - amt) * 100)}%, black)`
 
   const useNav = sdk.create(() => ({
     treeId: null as string | null,
@@ -36,13 +57,9 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
     srodek: '#9b59b6', srodek_stylistyczny: '#9b59b6',
     postac: '#22c55e', pojecie: '#fde68a', 'pojęcie': '#fde68a',
   }
-  const COLOR_MAP: Record<string, string> = {
-    primary: '#4a90e2', secondary: '#9b59b6', accent: '#e91e63',
-    info: '#00bcd4', success: '#22c55e', warning: '#f59e0b',
-    error: '#ef4444', neutral: '#94a3b8',
-  }
-  const PALETTE = ['#4a90e2', '#e91e63', '#22c55e', '#f59e0b', '#9b59b6', '#00bcd4', '#ef4444', '#94a3b8']
-  const catColor = (c: string) => CAT_COLORS[c] || '#94a3b8'
+  // Fallback paleta dla gałęzi bez przypisanego koloru (rotacyjnie).
+  const PALETTE = ['primary', 'accent', 'success', 'warning', 'secondary', 'info', 'error', 'neutral']
+  const catColor = (c: string) => CAT_COLORS[c] || COSMOS.fallback
   const branchOf = (n: PostRecord) => String(n.data.branch || '') || NO_BRANCH
 
   type BranchInfo = { key: string; label: string; color: string; def?: PostRecord }
@@ -57,10 +74,11 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
     if (nodes.some(n => branchOf(n) === NO_BRANCH)) used.push(NO_BRANCH)
     return used.map((k, i) => {
       const def = byKey.get(k)
+      const colorRaw = String(def?.data.color || '')
       return {
         key: k,
         label: def ? String(def.data.label) : 'bez gałęzi',
-        color: COLOR_MAP[String(def?.data.color || '')] || PALETTE[i % PALETTE.length],
+        color: colorRaw ? tok(colorRaw) : tok(PALETTE[i % PALETTE.length]),
         def,
       }
     })
@@ -196,7 +214,7 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
       const orbitColors = new Map(usedBranchInfos(nodes, branches).map(b => [b.key, b.color]))
       const m = new Map<string, string>()
       for (const n of nodes) {
-        m.set(String(n.data.nodeId), orbitColors.get(branchOf(n)) || '#94a3b8')
+        m.set(String(n.data.nodeId), orbitColors.get(branchOf(n)) || COSMOS.fallback)
       }
       return m
     }, [nodes, branches])
@@ -241,7 +259,7 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
         out.push({
           from, to, relation: best,
           relLabel: def ? String(def.data.label) : best,
-          relColor: COLOR_MAP[String(def?.data.color || '')] || '#94a3b8',
+          relColor: tok(String(def?.data.color || '')),
           count: total,
           strength: Math.min(0.4 + total * 0.15, 0.9),
         })
@@ -491,7 +509,7 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
             fontWeight: p.weight ?? 500,
             textTransform: p.uppercase ? 'uppercase' : 'none',
           }}
-          stroke="#0a0e1a" strokeWidth={sw} strokeOpacity={0.7}>
+          stroke={COSMOS.labelStroke} strokeWidth={sw} strokeOpacity={0.7}>
           {p.text}
         </text>
       )
@@ -585,14 +603,14 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
             <g key={e.id}>
               <Edge
                 a={a} b={b}
-                color={branchColorByNid.get(toNid) || '#94a3b8'}
+                color={branchColorByNid.get(toNid) || COSMOS.fallback}
                 op={op}
                 sw={hasType ? (op > 0.3 ? 2 : 1.5) : (op > 0.3 ? 1.5 : 1)}
                 dashed={contextNids.has(fromNid) || contextNids.has(toNid)}
                 arrow={hasType ? { targetR: planetRByNid.get(toNid) || 8 } : undefined}
                 label={
                   e.data.type && !!neighborSet && isEdgeFocused(fromNid, toNid)
-                    ? { text: String(e.data.type), color: '#cbd5e1' }
+                    ? { text: String(e.data.type), color: COSMOS.edgeLabel }
                     : undefined
                 }
               />
@@ -640,8 +658,8 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
           const a = positions.get(nids[i]); const b = positions.get(nids[j])
           if (!a || !b) continue
           lines.push(
-            <line key={`hl-${i}-${j}`} x1={a.x} y1={a.y} x2={b.x} y2={b.y}
-              stroke="#fde68a" strokeOpacity={0.55} strokeWidth={1.5} />
+            <Edge key={`hl-${i}-${j}`} a={a} b={b}
+              color={COSMOS.highlight} op={0.55} sw={1.5} />
           )
         }
       }
@@ -717,19 +735,19 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
                style={{ opacity: dimmed ? 0.25 : 1, transition: 'opacity 150ms' }}>
               {(isSel || isHl) && (
                 <circle cx={p.x} cy={p.y} r={haloR}
-                  fill={isHl ? '#fde68a' : p.color} opacity={0.3} />
+                  fill={isHl ? COSMOS.highlight : p.color} opacity={0.3} />
               )}
               <circle cx={p.x} cy={p.y + Math.max(2, r * 0.18)} r={r}
                 fill={darken(p.color)} style={{ pointerEvents: 'none' }} />
               <circle cx={p.x} cy={p.y} r={r}
                 fill={p.color}
-                stroke={isSel || isHl ? '#fff' : 'none'} strokeWidth={2}
+                stroke={isSel || isHl ? COSMOS.label : 'none'} strokeWidth={2}
                 style={{ cursor: 'pointer' }}
                 onClick={(e) => { e.stopPropagation(); tryClick(() => selectByNid(treeId, nid)) }} />
 
               {tier && (
                 <text x={p.x} y={p.y + tierFs * 0.35} textAnchor="middle"
-                  fontSize={tierFs} fill="#0a0e1a" fontWeight={700}
+                  fontSize={tierFs} fill={COSMOS.labelStroke} fontWeight={700}
                   style={{ pointerEvents: 'none' }}>
                   {tier}
                 </text>
@@ -744,9 +762,9 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
                 const moonRel = relatedLexIds.has(lex.id)
                 return (
                   <g key={lex.id}>
-                    {moonRel && <circle cx={mx} cy={my} r={5} fill="none" stroke="#fde68a" strokeOpacity={0.55} strokeWidth={1} />}
+                    {moonRel && <circle cx={mx} cy={my} r={5} fill="none" stroke={COSMOS.highlight} strokeOpacity={0.55} strokeWidth={1} />}
                     <circle cx={mx} cy={my} r={moonSel ? 4 : 2.6}
-                      fill={mc} stroke={moonSel ? '#fff' : 'none'} strokeWidth={1}
+                      fill={mc} stroke={moonSel ? COSMOS.label : 'none'} strokeWidth={1}
                       style={{ cursor: 'pointer' }}
                       onClick={(e) => { e.stopPropagation(); tryClick(() => selectByLex(lex.id)) }}>
                       <title>{String(lex.data.term)} · {String(lex.data.category || 'inne')}</title>
@@ -777,7 +795,7 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
             return (
               <Label key={n.id}
                 x={p.x} y={p.y + baseR + 14}
-                text={String(n.data.title)} color="#fff"
+                text={String(n.data.title)} color={COSMOS.label}
                 size={10} opacity={op} weight={500} />
             )
           })}
@@ -788,7 +806,7 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
     return (
       <div style={{ position: 'relative', width: '100%', height: '100%' }}>
         <svg ref={svgRef} viewBox="0 0 600 600" preserveAspectRatio="xMidYMid meet"
-          style={{ display: 'block', width: '100%', height: '100%', background: 'radial-gradient(ellipse at center, #1a2440 0%, #0a0e1a 100%)', borderRadius: 8, cursor: dragging ? 'grabbing' : 'grab', userSelect: 'none' }}
+          style={{ display: 'block', width: '100%', height: '100%', background: `radial-gradient(ellipse at center, ${COSMOS.bgFrom} 0%, ${COSMOS.bgTo} 100%)`, borderRadius: 8, cursor: dragging ? 'grabbing' : 'grab', userSelect: 'none' }}
           onWheel={onWheel}
           onMouseDown={onMouseDown}
           onMouseMove={onMouseMove}
@@ -797,8 +815,8 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
           onClick={onBackgroundClick}>
           <g ref={gRef}>
             {orbitsLayer}
-            <circle cx={cx} cy={cy} r={6} fill="#fde68a" />
-            <circle cx={cx} cy={cy} r={14} fill="#fde68a" opacity={0.2} />
+            <circle cx={cx} cy={cy} r={6} fill={COSMOS.star} />
+            <circle cx={cx} cy={cy} r={14} fill={COSMOS.star} opacity={0.2} />
             {contextLayer}
             {edgesLayer}
             {highlightLines}
@@ -808,12 +826,14 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
           </g>
         </svg>
 
-        {/* HUD: zoom + reset */}
-        <div style={{ position: 'absolute', top: 8, right: 8, display: 'flex', gap: 6, alignItems: 'center', background: 'rgba(10,14,26,0.7)', padding: '4px 8px', borderRadius: 6, fontSize: 11, color: '#cbd5e1' }}>
-          <span>{zoomPct}%</span>
-          <ui.Button size="xs" color="ghost" outline onClick={reset}>
-            <Maximize2 size={12} /> Reset
-          </ui.Button>
+        {/* HUD: zoom + reset (absolutny overlay nad SVG — nie da się tego zrobić ui.* bez nowej prymityw "FloatingPanel") */}
+        <div style={{ position: 'absolute', top: 8, right: 8, background: COSMOS.hudBg, padding: '4px 8px', borderRadius: 6, color: COSMOS.hud }}>
+          <ui.Row>
+            <ui.Text size="xs">{zoomPct}%</ui.Text>
+            <ui.Button size="xs" color="ghost" outline onClick={reset}>
+              <Maximize2 size={12} /> Reset
+            </ui.Button>
+          </ui.Row>
         </div>
       </div>
     )
