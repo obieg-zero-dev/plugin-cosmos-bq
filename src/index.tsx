@@ -1,5 +1,11 @@
 import type { PluginFactory, PostRecord } from '@obieg-zero/sdk'
-import { forceSimulation, forceLink, forceCollide, forceRadial, forceManyBody } from 'd3-force'
+import {
+  forceSimulation, forceLink, forceCollide, forceRadial, forceManyBody,
+  type Simulation, type SimulationNodeDatum, type SimulationLinkDatum,
+} from 'd3-force'
+import { zoom as d3zoom, zoomIdentity, type ZoomBehavior } from 'd3-zoom'
+import { drag as d3drag } from 'd3-drag'
+import { select } from 'd3-selection'
 
 const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
   const { useMemo, useEffect, useState, useRef } = React
@@ -36,6 +42,29 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
   // Color-mix darken — działa zarówno na hex jak i var(). Używane do "duolingo lift" pod planetą.
   const darken = (color: string, amt = 0.45): string =>
     `color-mix(in srgb, ${color} ${Math.round((1 - amt) * 100)}%, black)`
+
+  // === Tuning symulacji d3-force. Wszystkie magic numbers z poprzednich wersji TUTAJ.
+  const SIM = {
+    radial: 0.45,        // siła trzymania na orbicie (była 0.9 — za mocna, planety się nie ruszały). 0.45 = widoczne osiadanie.
+    collide: 26,         // promień rozpychania (planeta ma 8-18, więc otoczka ~8 px buforu)
+    linkDistance: 80,    // docelowa długość krawędzi structural
+    linkStrength: 0.18,  // siła ściągania połączonych (słabe, żeby radial dominował)
+    charge: -22,         // miękkie odpychanie globalne
+    alpha: 1,            // start z pełną energią — symulacja wystartuje "rozsypując" planety
+    alphaDecay: 0.04,    // szybkość wygaszania (default 0.0228 → wolniej; 0.04 = osiada w ~80 ticków)
+    alphaMin: 0.001,
+    velocityDecay: 0.5,  // tłumienie prędkości — wyższe = mniej wibracji
+  }
+  // Zoom limits + szybkość wygaszania resetu
+  const ZOOM = { min: 0.5, max: 5, resetMs: 350 }
+
+  type SimNode = SimulationNodeDatum & {
+    id: string
+    branch: string
+    targetR: number      // promień orbity (cel forceRadial)
+    color: string
+  }
+  type SimLink = SimulationLinkDatum<SimNode>
 
   const useNav = sdk.create(() => ({
     treeId: null as string | null,
@@ -282,7 +311,8 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
 
     const cx = 300, cy = 300
 
-    const { positions, orbits } = useMemo(() => {
+    // Layout orbit + initial sim nodes. Symulacja NIE biega tutaj — biega w CosmosSvg (animowana).
+    const { initialSimNodes, simLinks, orbits } = useMemo(() => {
       const rMin = 110
       const minArc = 38
       const baseStep = 95
@@ -301,49 +331,37 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
         return { ...info, radius: r }
       })
 
-      type SimNode = { id: string; x: number; y: number; r: number; color: string; branch: string }
-      const simNodes: SimNode[] = []
+      const initialSimNodes: SimNode[] = []
       for (const orbit of orbits) {
         const onOrbit = nodes.filter(n => branchOf(n) === orbit.key)
         onOrbit.forEach((n, j) => {
           const a = (j / Math.max(onOrbit.length, 1)) * Math.PI * 2 - Math.PI / 2
-          simNodes.push({
+          initialSimNodes.push({
             id: String(n.data.nodeId),
             x: cx + Math.cos(a) * orbit.radius,
             y: cy + Math.sin(a) * orbit.radius,
-            r: orbit.radius,
+            targetR: orbit.radius,
             color: orbit.color,
             branch: orbit.key,
           })
         })
       }
 
-      const nidSet = new Set(simNodes.map(n => n.id))
-      const simLinks = edges
+      const nidSet = new Set(initialSimNodes.map(n => n.id))
+      const simLinks: SimLink[] = edges
         .map(e => ({ source: String(e.data.fromNid), target: String(e.data.toNid) }))
-        .filter(l => nidSet.has(l.source) && nidSet.has(l.target))
+        .filter(l => nidSet.has(l.source as string) && nidSet.has(l.target as string)) as SimLink[]
 
-      const sim = forceSimulation(simNodes as any)
-        .force('radial', forceRadial((d: any) => d.r, cx, cy).strength(0.9))
-        .force('collide', forceCollide(26))
-        .force('link', forceLink(simLinks as any).id((d: any) => d.id).distance(80).strength(0.18))
-        .force('charge', forceManyBody().strength(-22))
-        .stop()
-      for (let i = 0; i < 150; i++) sim.tick()
-
-      const positions = new Map<string, { x: number; y: number; color: string }>()
-      for (const sn of simNodes) {
-        positions.set(sn.id, { x: sn.x, y: sn.y, color: sn.color })
-      }
-
-      return { positions, orbits }
+      return { initialSimNodes, simLinks, orbits }
     }, [nodes, branches, edges])
 
     if (nodes.length === 0) return <ui.Placeholder text="Drzewo nie ma węzłów" />
 
     return <CosmosSvg
       cx={cx} cy={cy}
-      orbits={orbits} positions={positions}
+      orbits={orbits}
+      initialSimNodes={initialSimNodes}
+      simLinks={simLinks}
       nodes={nodes} edges={edges}
       contextEdges={contextEdges}
       lexsByNid={lexsByNid}
@@ -361,7 +379,8 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
   function CosmosSvg(props: {
     cx: number; cy: number
     orbits: Array<{ key: string; label: string; color: string; radius: number }>
-    positions: Map<string, { x: number; y: number; color: string }>
+    initialSimNodes: SimNode[]
+    simLinks: SimLink[]
     nodes: PostRecord[]
     edges: PostRecord[]
     contextEdges: { from: string; to: string; relation: string; relLabel: string; relColor: string; count: number; strength: number }[]
@@ -376,91 +395,79 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
     highlightedNids: Set<string>
     treeId: string
   }) {
-    const { cx, cy, orbits, positions, nodes, edges, contextEdges, lexsByNid, slidesByNodeId, contextNids, planetRByNid, branchColorByNid,
+    const { cx, cy, orbits, initialSimNodes, simLinks, nodes, edges, contextEdges, lexsByNid, slidesByNodeId, contextNids, planetRByNid, branchColorByNid,
             selectedNid, selectedLexId, relatedLexIds, highlightedNids, treeId } = props
 
     const svgRef = useRef<SVGSVGElement>(null)
     const gRef = useRef<SVGGElement>(null)
-    const viewRef = useRef({ zoom: 1, x: 0, y: 0 })
-    const dragRef = useRef<{ sx: number; sy: number; vx: number; vy: number; moved: boolean } | null>(null)
-    const wasMovedRef = useRef(false)
-    const [zoomPct, setZoomPct] = useState(100)
-    const [dragging, setDragging] = useState(false)
+    const zoomRef = useRef<ZoomBehavior<SVGSVGElement, unknown> | null>(null)
+    const simRef = useRef<Simulation<SimNode, SimLink> | null>(null)
+    const [zoomK, setZoomK] = useState(1)
+    const [panning, setPanning] = useState(false)
     const [hovered, setHovered] = useState<string | null>(null)
+    const [positions, setPositions] = useState<Map<string, { x: number; y: number }>>(() => {
+      const m = new Map()
+      for (const n of initialSimNodes) m.set(n.id, { x: n.x ?? 0, y: n.y ?? 0 })
+      return m
+    })
 
+    // === d3-force: animowana symulacja. tick → setPositions → React rerenderuje warstwy.
+    useEffect(() => {
+      // Kopia węzłów — sim mutuje x/y/vx/vy in place; nie chcemy mutować propsa.
+      const simNodes: SimNode[] = initialSimNodes.map(n => ({ ...n }))
+      // Linki kopiowane bo d3 zamienia source/target ze stringów na referencje obiektowe
+      const links: SimLink[] = simLinks.map(l => ({ source: l.source, target: l.target }))
 
-    const applyView = () => {
-      const v = viewRef.current
-      gRef.current?.setAttribute('transform', `translate(${v.x} ${v.y}) scale(${v.zoom})`)
-    }
+      const sim = forceSimulation<SimNode>(simNodes)
+        .force('radial', forceRadial<SimNode>(d => d.targetR, cx, cy).strength(SIM.radial))
+        .force('collide', forceCollide<SimNode>(SIM.collide))
+        .force('link', forceLink<SimNode, SimLink>(links).id(d => d.id).distance(SIM.linkDistance).strength(SIM.linkStrength))
+        .force('charge', forceManyBody<SimNode>().strength(SIM.charge))
+        .alpha(SIM.alpha)
+        .alphaDecay(SIM.alphaDecay)
+        .alphaMin(SIM.alphaMin)
+        .velocityDecay(SIM.velocityDecay)
+        .on('tick', () => {
+          const next = new Map<string, { x: number; y: number }>()
+          for (const n of simNodes) next.set(n.id, { x: n.x ?? 0, y: n.y ?? 0 })
+          setPositions(next)
+        })
+
+      simRef.current = sim
+      return () => { sim.stop(); simRef.current = null }
+    }, [initialSimNodes, simLinks, cx, cy])
+
+    // === d3-zoom: pan + scroll-zoom + click-suppression-after-drag (built-in).
+    useEffect(() => {
+      if (!svgRef.current || !gRef.current) return
+      const svgSel = select(svgRef.current)
+      const gSel = select(gRef.current)
+      const zb = d3zoom<SVGSVGElement, unknown>()
+        .scaleExtent([ZOOM.min, ZOOM.max])
+        .on('start', () => setPanning(true))
+        .on('zoom', (event) => {
+          gSel.attr('transform', event.transform.toString())
+          setZoomK(event.transform.k)
+        })
+        .on('end', () => setPanning(false))
+      svgSel.call(zb)
+      zoomRef.current = zb
+      return () => { svgSel.on('.zoom', null); zoomRef.current = null }
+    }, [])
 
     const reset = () => {
-      viewRef.current = { zoom: 1, x: 0, y: 0 }
-      applyView()
-      setZoomPct(100)
-    }
-
-    const screenToVb = (clientX: number, clientY: number) => {
-      const rect = svgRef.current?.getBoundingClientRect()
-      if (!rect) return { x: 300, y: 300 }
-      const size = Math.min(rect.width, rect.height)
-      const offX = (rect.width - size) / 2
-      const offY = (rect.height - size) / 2
-      return {
-        x: ((clientX - rect.left - offX) / size) * 600,
-        y: ((clientY - rect.top - offY) / size) * 600,
-      }
-    }
-
-    const onWheel = (e: React.WheelEvent) => {
-      const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15
-      const { x: px, y: py } = screenToVb(e.clientX, e.clientY)
-      const v = viewRef.current
-      const z = Math.max(0.5, Math.min(5, v.zoom * factor))
-      const k = z / v.zoom
-      viewRef.current = { zoom: z, x: px - k * (px - v.x), y: py - k * (py - v.y) }
-      applyView()
-      setZoomPct(Math.round(z * 100))
-    }
-
-    const onMouseDown = (e: React.MouseEvent) => {
-      if (e.button !== 0) return
-      const v = viewRef.current
-      dragRef.current = { sx: e.clientX, sy: e.clientY, vx: v.x, vy: v.y, moved: false }
-      setDragging(true)
-      if (hovered) setHovered(null)
-    }
-    const onMouseMove = (e: React.MouseEvent) => {
-      const d = dragRef.current
-      if (!d) return
-      const rect = svgRef.current?.getBoundingClientRect()
-      if (!rect) return
-      const size = Math.min(rect.width, rect.height)
-      const dx = ((e.clientX - d.sx) / size) * 600
-      const dy = ((e.clientY - d.sy) / size) * 600
-      if (!d.moved && Math.hypot(e.clientX - d.sx, e.clientY - d.sy) > 4) d.moved = true
-      viewRef.current.x = d.vx + dx
-      viewRef.current.y = d.vy + dy
-      applyView()
-    }
-
-    const finishDrag = () => {
-      wasMovedRef.current = dragRef.current?.moved || false
-      dragRef.current = null
-      setDragging(false)
-    }
-    const tryClick = (cb: () => void) => {
-      if (wasMovedRef.current) { wasMovedRef.current = false; return }
-      cb()
-    }
-    const setHoverIfIdle = (nid: string | null) => {
-      if (dragRef.current) return
-      setHovered(prev => (prev === nid ? prev : nid))
+      if (!svgRef.current || !zoomRef.current) return
+      select(svgRef.current).transition().duration(ZOOM.resetMs)
+        .call(zoomRef.current.transform as any, zoomIdentity)
     }
 
     const onBackgroundClick = () => {
-      if (wasMovedRef.current) { wasMovedRef.current = false; return }
+      // d3-zoom suprymuje click po przeciągnięciu → tu trafia tylko czysty klik.
       useNav.setState({ selectedNid: null, selectedLexId: null })
+    }
+    const setHoverIfIdle = (nid: string | null) => {
+      if (panning) return
+      setHovered(prev => (prev === nid ? prev : nid))
     }
 
     const focusNid: string | null = selectedNid
@@ -485,11 +492,11 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
     const isEdgeRelevant = (a: string, b: string) =>
       !!neighborSet && neighborSet.has(a) && neighborSet.has(b)
 
-    const showAllLabels = zoomPct >= 150
+    const showAllLabels = zoomK >= 1.5
     const labelOpacity = (sel: boolean, hov: boolean) =>
       sel ? 1 : hov ? 0.95 : showAllLabels ? 0.8 : 0
 
-    const z = Math.max(zoomPct / 100, 0.5)
+    const z = Math.max(zoomK, 0.5)
     const Label = (p: {
       x: number; y: number; text: string; color: string;
       size?: number; opacity?: number; weight?: number; uppercase?: boolean;
@@ -825,6 +832,7 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
         {nodes.map(n => {
           const nid = String(n.data.nodeId)
           const p = positions.get(nid); if (!p) return null
+          const color = branchColorByNid.get(nid) || COSMOS.fallback
           const isSel = selectedNid === nid
           const isHl = highlightedNids.has(nid)
           const state: PlanetState = isSel ? 'selected' : isHl ? 'highlighted' : 'idle'
@@ -835,7 +843,7 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
             <React.Fragment key={n.id}>
               <Planet
                 x={p.x} y={p.y}
-                color={p.color}
+                color={color}
                 baseR={baseR}
                 state={state}
                 tier={String(n.data.tier ?? '') || undefined}
@@ -843,7 +851,7 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
                 dimmed={isNodeDimmed(nid)}
                 onMouseEnter={() => setHoverIfIdle(nid)}
                 onMouseLeave={() => setHoverIfIdle(null)}
-                onClick={() => tryClick(() => selectByNid(treeId, nid))}
+                onClick={() => selectByNid(treeId, nid)}
               />
               {lexs.map((lex, i) => {
                 const ang = (i / Math.max(lexs.length, 1)) * Math.PI * 2
@@ -855,7 +863,7 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
                     selected={selectedLexId === lex.id}
                     related={relatedLexIds.has(lex.id)}
                     title={`${String(lex.data.term)} · ${String(lex.data.category || 'inne')}`}
-                    onClick={() => tryClick(() => selectByLex(lex.id))}
+                    onClick={() => selectByLex(lex.id)}
                   />
                 )
               })}
@@ -864,7 +872,7 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
         })}
       </>
       )
-    }, [nodes, positions, lexsByNid, slidesByNodeId, selectedNid, selectedLexId, relatedLexIds, highlightedNids, treeId, neighborSet, z])
+    }, [nodes, positions, lexsByNid, slidesByNodeId, selectedNid, selectedLexId, relatedLexIds, highlightedNids, treeId, neighborSet, z, branchColorByNid])
 
     const labelsLayer = useMemo(() => {
       return (
@@ -887,17 +895,12 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
           })}
         </>
       )
-    }, [nodes, positions, slidesByNodeId, selectedNid, highlightedNids, hovered, zoomPct])
+    }, [nodes, positions, slidesByNodeId, selectedNid, highlightedNids, hovered, zoomK])
 
     return (
       <div style={{ position: 'relative', width: '100%', height: '100%' }}>
         <svg ref={svgRef} viewBox="0 0 600 600" preserveAspectRatio="xMidYMid meet"
-          style={{ display: 'block', width: '100%', height: '100%', background: `radial-gradient(ellipse at center, ${COSMOS.bgFrom} 0%, ${COSMOS.bgTo} 100%)`, borderRadius: 8, cursor: dragging ? 'grabbing' : 'grab', userSelect: 'none' }}
-          onWheel={onWheel}
-          onMouseDown={onMouseDown}
-          onMouseMove={onMouseMove}
-          onMouseUp={finishDrag}
-          onMouseLeave={finishDrag}
+          style={{ display: 'block', width: '100%', height: '100%', background: `radial-gradient(ellipse at center, ${COSMOS.bgFrom} 0%, ${COSMOS.bgTo} 100%)`, borderRadius: 8, cursor: panning ? 'grabbing' : 'grab', userSelect: 'none' }}
           onClick={onBackgroundClick}>
           <g ref={gRef}>
             {orbitsLayer}
@@ -914,7 +917,7 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
         {/* HUD: zoom + reset (absolutny overlay nad SVG — nie da się tego zrobić ui.* bez nowej prymityw "FloatingPanel") */}
         <div style={{ position: 'absolute', top: 8, right: 8, background: COSMOS.hudBg, padding: '4px 8px', borderRadius: 6, color: COSMOS.hud }}>
           <ui.Row>
-            <ui.Text size="xs">{zoomPct}%</ui.Text>
+            <ui.Text size="xs">{Math.round(zoomK * 100)}%</ui.Text>
             <ui.Button size="xs" color="ghost" outline onClick={reset}>
               <Maximize2 size={12} /> Reset
             </ui.Button>
