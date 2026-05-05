@@ -3172,13 +3172,14 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
   const SONAR = {
     rings: 3,
     // ile pulsów rozchodzi się równocześnie (staggered)
-    duration: 2.4,
-    // s — czas jednego cyklu (od planety do zaniku)
+    duration: 1.6,
+    // s — krótszy cykl = częstszy puls (przy 3 ringach pulsuje co ~0.53s)
     scaleFrom: 1,
     scaleTo: 2.6,
-    opacityFrom: 0.55,
-    // start: ledwie widoczny, nie krzykliwy
-    strokeWidth: 1.2
+    opacityFrom: 0.6,
+    // delikatnie podbite żeby grubszy stroke nie krzyczał
+    strokeWidth: 2.2
+    // grubsza linia
   };
   const useNav = sdk.create(() => ({
     treeId: null,
