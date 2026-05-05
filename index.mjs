@@ -837,7 +837,6 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
     return COSMOS.fallback;
   };
   const darken = (color, amt = 0.45) => `color-mix(in srgb, ${color} ${Math.round((1 - amt) * 100)}%, black)`;
-  const lighten = (color, amt = 0.35) => `color-mix(in srgb, ${color} ${Math.round((1 - amt) * 100)}%, white)`;
   const useNav = sdk.create(() => ({
     treeId: null,
     selectedNid: null,
@@ -1508,169 +1507,116 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
         );
       })
     ] }), [nodes, positions, slidesByNodeId, cx, cy]);
-    const planetDefs = useMemo(() => /* @__PURE__ */ jsx("defs", { children: nodes.map((n) => {
-      const nid = String(n.data.nodeId);
-      const p = positions.get(nid);
-      if (!p) return null;
-      const slides = slidesByNodeId.get(n.id) || 0;
-      const r = planetRadius(slides);
-      const dx = p.x - cx, dy = p.y - cy;
-      const len = Math.hypot(dx, dy) || 1;
-      const ux = dx / len, uy = dy / len;
-      const color = branchColorByNid.get(nid) || COSMOS.fallback;
-      const haloR = r + 14;
-      const innerStop = Math.round(r / haloR * 100);
-      return /* @__PURE__ */ jsxs(React.Fragment, { children: [
-        /* @__PURE__ */ jsxs(
-          "radialGradient",
-          {
-            id: `bq-planet-${nid}`,
-            gradientUnits: "userSpaceOnUse",
-            cx: p.x,
-            cy: p.y,
-            r: r * 1.6,
-            fx: p.x - ux * r * 0.55,
-            fy: p.y - uy * r * 0.55,
-            children: [
-              /* @__PURE__ */ jsx("stop", { offset: "0%", stopColor: lighten(color, 0.4) }),
-              /* @__PURE__ */ jsx("stop", { offset: "55%", stopColor: color }),
-              /* @__PURE__ */ jsx("stop", { offset: "100%", stopColor: darken(color, 0.55) })
-            ]
-          }
-        ),
-        /* @__PURE__ */ jsxs(
-          "radialGradient",
-          {
-            id: `bq-halo-${nid}`,
-            gradientUnits: "userSpaceOnUse",
-            cx: p.x,
-            cy: p.y,
-            r: haloR,
-            children: [
-              /* @__PURE__ */ jsx("stop", { offset: `${innerStop}%`, stopColor: color, stopOpacity: 0.55 }),
-              /* @__PURE__ */ jsx("stop", { offset: "100%", stopColor: color, stopOpacity: 0 })
-            ]
-          }
-        )
-      ] }, n.id);
-    }) }), [nodes, positions, slidesByNodeId, branchColorByNid, cx, cy]);
     const planetsLayer = useMemo(() => {
-      return /* @__PURE__ */ jsxs(Fragment, { children: [
-        planetDefs,
-        nodes.map((n) => {
-          const nid = String(n.data.nodeId);
-          const p = positions.get(nid);
-          if (!p) return null;
-          const isSel = selectedNid === nid;
-          const isHl = highlightedNids.has(nid);
-          const lexs = lexsByNid.get(nid) || [];
-          const dimmed = isNodeDimmed(nid);
-          const slides = slidesByNodeId.get(n.id) || 0;
-          const baseR = planetRadius(slides);
-          const r = isSel ? baseR + 4 : baseR;
-          const moonOrbitR = r + 8;
-          const haloR = r + 10;
-          const tier = String(n.data.tier ?? "");
-          const tierFs = Math.max(7, baseR * 0.85) / z;
-          const dx = p.x - cx, dy = p.y - cy;
-          const len = Math.hypot(dx, dy) || 1;
-          const ux = dx / len, uy = dy / len;
-          return /* @__PURE__ */ jsxs(
-            "g",
-            {
-              onMouseEnter: () => setHoverIfIdle(nid),
-              onMouseLeave: () => setHoverIfIdle(null),
-              style: { opacity: dimmed ? 0.25 : 1, transition: "opacity 150ms" },
-              children: [
-                (isSel || isHl) && /* @__PURE__ */ jsx(
-                  "circle",
-                  {
-                    cx: p.x,
-                    cy: p.y,
-                    r: haloR,
-                    fill: isHl ? COSMOS.highlight : `url(#bq-halo-${nid})`,
-                    opacity: isHl ? 0.35 : 1,
-                    pointerEvents: "none"
+      return /* @__PURE__ */ jsx(Fragment, { children: nodes.map((n) => {
+        const nid = String(n.data.nodeId);
+        const p = positions.get(nid);
+        if (!p) return null;
+        const isSel = selectedNid === nid;
+        const isHl = highlightedNids.has(nid);
+        const lexs = lexsByNid.get(nid) || [];
+        const dimmed = isNodeDimmed(nid);
+        const slides = slidesByNodeId.get(n.id) || 0;
+        const baseR = planetRadius(slides);
+        const r = isSel ? baseR + 4 : baseR;
+        const moonOrbitR = r + 8;
+        const haloR = r + 8;
+        const tier = String(n.data.tier ?? "");
+        const tierFs = Math.max(7, baseR * 0.85) / z;
+        return /* @__PURE__ */ jsxs(
+          "g",
+          {
+            onMouseEnter: () => setHoverIfIdle(nid),
+            onMouseLeave: () => setHoverIfIdle(null),
+            style: { opacity: dimmed ? 0.25 : 1, transition: "opacity 150ms" },
+            children: [
+              (isSel || isHl) && /* @__PURE__ */ jsx(
+                "circle",
+                {
+                  cx: p.x,
+                  cy: p.y,
+                  r: haloR,
+                  fill: isHl ? COSMOS.highlight : p.color,
+                  opacity: 0.3,
+                  pointerEvents: "none"
+                }
+              ),
+              /* @__PURE__ */ jsx(
+                "circle",
+                {
+                  cx: p.x,
+                  cy: p.y + Math.max(2, r * 0.18),
+                  r,
+                  fill: darken(p.color),
+                  style: { pointerEvents: "none" }
+                }
+              ),
+              /* @__PURE__ */ jsx(
+                "circle",
+                {
+                  cx: p.x,
+                  cy: p.y,
+                  r,
+                  fill: p.color,
+                  stroke: isSel || isHl ? COSMOS.label : "none",
+                  strokeWidth: 2,
+                  style: { cursor: "pointer" },
+                  onClick: (e) => {
+                    e.stopPropagation();
+                    tryClick(() => selectByNid(treeId, nid));
                   }
-                ),
-                /* @__PURE__ */ jsx(
-                  "circle",
-                  {
-                    cx: p.x,
-                    cy: p.y,
-                    r,
-                    fill: `url(#bq-planet-${nid})`,
-                    stroke: isSel || isHl ? COSMOS.label : "none",
-                    strokeWidth: 2,
-                    style: { cursor: "pointer" },
-                    onClick: (e) => {
-                      e.stopPropagation();
-                      tryClick(() => selectByNid(treeId, nid));
+                }
+              ),
+              tier && /* @__PURE__ */ jsx(
+                "text",
+                {
+                  x: p.x,
+                  y: p.y + tierFs * 0.35,
+                  textAnchor: "middle",
+                  fontSize: tierFs,
+                  fill: COSMOS.labelStroke,
+                  fontWeight: 700,
+                  style: { pointerEvents: "none" },
+                  children: tier
+                }
+              ),
+              lexs.map((lex, i) => {
+                const ang = i / Math.max(lexs.length, 1) * Math.PI * 2;
+                const mx = p.x + Math.cos(ang) * moonOrbitR;
+                const my = p.y + Math.sin(ang) * moonOrbitR;
+                const mc = catColor(String(lex.data.category || ""));
+                const moonSel = selectedLexId === lex.id;
+                const moonRel = relatedLexIds.has(lex.id);
+                return /* @__PURE__ */ jsxs("g", { children: [
+                  moonRel && /* @__PURE__ */ jsx("circle", { cx: mx, cy: my, r: 5, fill: "none", stroke: COSMOS.highlight, strokeOpacity: 0.55, strokeWidth: 1 }),
+                  /* @__PURE__ */ jsx(
+                    "circle",
+                    {
+                      cx: mx,
+                      cy: my,
+                      r: moonSel ? 4 : 2.6,
+                      fill: mc,
+                      stroke: moonSel ? COSMOS.label : "none",
+                      strokeWidth: 1,
+                      style: { cursor: "pointer" },
+                      onClick: (e) => {
+                        e.stopPropagation();
+                        tryClick(() => selectByLex(lex.id));
+                      },
+                      children: /* @__PURE__ */ jsxs("title", { children: [
+                        String(lex.data.term),
+                        " · ",
+                        String(lex.data.category || "inne")
+                      ] })
                     }
-                  }
-                ),
-                baseR >= 10 && /* @__PURE__ */ jsx(
-                  "circle",
-                  {
-                    cx: p.x - ux * r * 0.45,
-                    cy: p.y - uy * r * 0.45,
-                    r: r * 0.22,
-                    fill: COSMOS.label,
-                    opacity: 0.4,
-                    pointerEvents: "none"
-                  }
-                ),
-                tier && /* @__PURE__ */ jsx(
-                  "text",
-                  {
-                    x: p.x,
-                    y: p.y + tierFs * 0.35,
-                    textAnchor: "middle",
-                    fontSize: tierFs,
-                    fill: COSMOS.labelStroke,
-                    fontWeight: 700,
-                    style: { pointerEvents: "none" },
-                    children: tier
-                  }
-                ),
-                lexs.map((lex, i) => {
-                  const ang = i / Math.max(lexs.length, 1) * Math.PI * 2;
-                  const mx = p.x + Math.cos(ang) * moonOrbitR;
-                  const my = p.y + Math.sin(ang) * moonOrbitR;
-                  const mc = catColor(String(lex.data.category || ""));
-                  const moonSel = selectedLexId === lex.id;
-                  const moonRel = relatedLexIds.has(lex.id);
-                  return /* @__PURE__ */ jsxs("g", { children: [
-                    moonRel && /* @__PURE__ */ jsx("circle", { cx: mx, cy: my, r: 5, fill: "none", stroke: COSMOS.highlight, strokeOpacity: 0.55, strokeWidth: 1 }),
-                    /* @__PURE__ */ jsx(
-                      "circle",
-                      {
-                        cx: mx,
-                        cy: my,
-                        r: moonSel ? 4 : 2.6,
-                        fill: mc,
-                        stroke: moonSel ? COSMOS.label : "none",
-                        strokeWidth: 1,
-                        style: { cursor: "pointer" },
-                        onClick: (e) => {
-                          e.stopPropagation();
-                          tryClick(() => selectByLex(lex.id));
-                        },
-                        children: /* @__PURE__ */ jsxs("title", { children: [
-                          String(lex.data.term),
-                          " · ",
-                          String(lex.data.category || "inne")
-                        ] })
-                      }
-                    )
-                  ] }, lex.id);
-                })
-              ]
-            },
-            n.id
-          );
-        })
-      ] });
+                  )
+                ] }, lex.id);
+              })
+            ]
+          },
+          n.id
+        );
+      }) });
     }, [nodes, positions, lexsByNid, slidesByNodeId, selectedNid, selectedLexId, relatedLexIds, highlightedNids, treeId, neighborSet, z]);
     const labelsLayer = useMemo(() => {
       return /* @__PURE__ */ jsx(Fragment, { children: nodes.map((n) => {
