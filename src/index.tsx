@@ -33,9 +33,11 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
     return COSMOS.fallback
   }
 
-  // Color-mix darken — działa zarówno na hex jak i var().
+  // Color-mix darken/lighten — działają zarówno na hex jak i var().
   const darken = (color: string, amt = 0.45): string =>
     `color-mix(in srgb, ${color} ${Math.round((1 - amt) * 100)}%, black)`
+  const lighten = (color: string, amt = 0.35): string =>
+    `color-mix(in srgb, ${color} ${Math.round((1 - amt) * 100)}%, white)`
 
   const useNav = sdk.create(() => ({
     treeId: null as string | null,
@@ -711,9 +713,46 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
       </>
     ), [nodes, positions, slidesByNodeId, cx, cy])
 
+    // Per-planet gradients (terminator + halo). Memo na same dane — niezależne od zaznaczenia.
+    const planetDefs = useMemo(() => (
+      <defs>
+        {nodes.map(n => {
+          const nid = String(n.data.nodeId)
+          const p = positions.get(nid); if (!p) return null
+          const slides = slidesByNodeId.get(n.id) || 0
+          const r = planetRadius(slides)
+          const dx = p.x - cx, dy = p.y - cy
+          const len = Math.hypot(dx, dy) || 1
+          const ux = dx / len, uy = dy / len
+          const color = branchColorByNid.get(nid) || COSMOS.fallback
+          const haloR = r + 14
+          const innerStop = Math.round((r / haloR) * 100)
+          return (
+            <React.Fragment key={n.id}>
+              {/* Terminator: jaśniej po stronie słońca, ciemniej po przeciwnej */}
+              <radialGradient id={`bq-planet-${nid}`} gradientUnits="userSpaceOnUse"
+                cx={p.x} cy={p.y} r={r * 1.6}
+                fx={p.x - ux * r * 0.55} fy={p.y - uy * r * 0.55}>
+                <stop offset="0%"   stopColor={lighten(color, 0.4)} />
+                <stop offset="55%"  stopColor={color} />
+                <stop offset="100%" stopColor={darken(color, 0.55)} />
+              </radialGradient>
+              {/* Aureola: kolor planety wyciekający na zewnątrz, gładkie zniknięcie */}
+              <radialGradient id={`bq-halo-${nid}`} gradientUnits="userSpaceOnUse"
+                cx={p.x} cy={p.y} r={haloR}>
+                <stop offset={`${innerStop}%`} stopColor={color} stopOpacity={0.55} />
+                <stop offset="100%" stopColor={color} stopOpacity={0} />
+              </radialGradient>
+            </React.Fragment>
+          )
+        })}
+      </defs>
+    ), [nodes, positions, slidesByNodeId, branchColorByNid, cx, cy])
+
     const planetsLayer = useMemo(() => {
       return (
       <>
+        {planetDefs}
         {nodes.map(n => {
           const nid = String(n.data.nodeId)
           const p = positions.get(nid); if (!p) return null
@@ -722,12 +761,16 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
           const lexs = lexsByNid.get(nid) || []
           const dimmed = isNodeDimmed(nid)
           const slides = slidesByNodeId.get(n.id) || 0
-          const baseR = Math.min(8 + slides * 1.0, 18)
+          const baseR = planetRadius(slides)
           const r = isSel ? baseR + 4 : baseR
           const moonOrbitR = r + 8
-          const haloR = r + 8
+          const haloR = r + 10
           const tier = String(n.data.tier ?? '')
           const tierFs = Math.max(7, baseR * 0.85) / z
+          // Wektor od słońca → planeta (dla specular highlight po stronie słońca)
+          const dx = p.x - cx, dy = p.y - cy
+          const len = Math.hypot(dx, dy) || 1
+          const ux = dx / len, uy = dy / len
           return (
             <g key={n.id}
                onMouseEnter={() => setHoverIfIdle(nid)}
@@ -735,15 +778,25 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
                style={{ opacity: dimmed ? 0.25 : 1, transition: 'opacity 150ms' }}>
               {(isSel || isHl) && (
                 <circle cx={p.x} cy={p.y} r={haloR}
-                  fill={isHl ? COSMOS.highlight : p.color} opacity={0.3} />
+                  fill={isHl ? COSMOS.highlight : `url(#bq-halo-${nid})`}
+                  opacity={isHl ? 0.35 : 1}
+                  pointerEvents="none" />
               )}
-              <circle cx={p.x} cy={p.y + Math.max(2, r * 0.18)} r={r}
-                fill={darken(p.color)} style={{ pointerEvents: 'none' }} />
               <circle cx={p.x} cy={p.y} r={r}
-                fill={p.color}
+                fill={`url(#bq-planet-${nid})`}
                 stroke={isSel || isHl ? COSMOS.label : 'none'} strokeWidth={2}
                 style={{ cursor: 'pointer' }}
                 onClick={(e) => { e.stopPropagation(); tryClick(() => selectByNid(treeId, nid)) }} />
+              {/* Specular: mała biaława kropla na stronie słońca, tylko dla większych planet */}
+              {baseR >= 10 && (
+                <circle
+                  cx={p.x - ux * r * 0.45}
+                  cy={p.y - uy * r * 0.45}
+                  r={r * 0.22}
+                  fill={COSMOS.label}
+                  opacity={0.4}
+                  pointerEvents="none" />
+              )}
 
               {tier && (
                 <text x={p.x} y={p.y + tierFs * 0.35} textAnchor="middle"
