@@ -568,6 +568,93 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
       )
     }
 
+    // === Planet/Moon — żetony duolingo. Geometria liczona z planetGeom(), ZERO inline magic numbers.
+    type PlanetState = 'idle' | 'selected' | 'highlighted'
+    const planetGeom = (baseR: number, state: PlanetState) => {
+      const r = state === 'selected' ? baseR + 4 : baseR
+      return {
+        r,                                  // promień korpusu (selected = +4)
+        haloR: r + 8,                       // zewnętrzny krąg aureoli
+        liftOff: Math.max(2, r * 0.18),     // przesunięcie ciemnej tarczy "lift" w dół (chunky 3D)
+      }
+    }
+    // Eksponujemy r dla layoutu księżyców (orbit r + 8) i strzałek (targetR).
+    const planetOuterR = (baseR: number, state: PlanetState) => planetGeom(baseR, state).r
+
+    // Żeton-planeta: flat color + ciemniejszy "lift" pod spodem (duolingo button feel).
+    const Planet = (p: {
+      x: number; y: number
+      color: string
+      baseR: number
+      state: PlanetState
+      tier?: string
+      zoomFactor: number       // anty-zoom dla tier-tekstu (taki sam jak w Label)
+      dimmed?: boolean
+      onClick?: () => void
+      onMouseEnter?: () => void
+      onMouseLeave?: () => void
+    }) => {
+      const { r, haloR, liftOff } = planetGeom(p.baseR, p.state)
+      const isSel = p.state === 'selected'
+      const isHl = p.state === 'highlighted'
+      const haloColor = isHl ? COSMOS.highlight : p.color
+      const tierFs = Math.max(7, p.baseR * 0.85) / p.zoomFactor
+      return (
+        <g
+          onMouseEnter={p.onMouseEnter}
+          onMouseLeave={p.onMouseLeave}
+          style={{ opacity: p.dimmed ? 0.25 : 1, transition: 'opacity 150ms' }}
+        >
+          {(isSel || isHl) && (
+            <circle cx={p.x} cy={p.y} r={haloR}
+              fill={haloColor} opacity={0.3} pointerEvents="none" />
+          )}
+          {/* Lift: ciemniejsza tarcza przesunięta w dół — daje chunky 3D feel */}
+          <circle cx={p.x} cy={p.y + liftOff} r={r}
+            fill={darken(p.color)} pointerEvents="none" />
+          {/* Korpus */}
+          <circle cx={p.x} cy={p.y} r={r}
+            fill={p.color}
+            stroke={isSel || isHl ? COSMOS.label : 'none'} strokeWidth={2}
+            style={{ cursor: p.onClick ? 'pointer' : 'default' }}
+            onClick={p.onClick ? (e) => { e.stopPropagation(); p.onClick!() } : undefined}
+          />
+          {p.tier && (
+            <text x={p.x} y={p.y + tierFs * 0.35} textAnchor="middle"
+              fontSize={tierFs} fill={COSMOS.labelStroke} fontWeight={700}
+              pointerEvents="none">
+              {p.tier}
+            </text>
+          )}
+        </g>
+      )
+    }
+
+    // Mini-żeton: księżyc krążący wokół planety, mała kategoria leksykonu.
+    const Moon = (p: {
+      x: number; y: number
+      color: string
+      selected?: boolean
+      related?: boolean
+      title: string
+      onClick?: () => void
+    }) => (
+      <g>
+        {p.related && (
+          <circle cx={p.x} cy={p.y} r={5} fill="none"
+            stroke={COSMOS.highlight} strokeOpacity={0.55} strokeWidth={1}
+            pointerEvents="none" />
+        )}
+        <circle cx={p.x} cy={p.y} r={p.selected ? 4 : 2.6}
+          fill={p.color}
+          stroke={p.selected ? COSMOS.label : 'none'} strokeWidth={1}
+          style={{ cursor: p.onClick ? 'pointer' : 'default' }}
+          onClick={p.onClick ? (e) => { e.stopPropagation(); p.onClick!() } : undefined}>
+          <title>{p.title}</title>
+        </circle>
+      </g>
+    )
+
     // Warstwy używające <Label> MUSZĄ mieć `z` w deps — Label czyta z z closure, memo trzyma stary fs.
     const orbitsLayer = useMemo(() => {
       return (
@@ -689,8 +776,7 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
         {nodes.map(n => {
           const nid = String(n.data.nodeId)
           const p = positions.get(nid); if (!p) return null
-          const slides = slidesByNodeId.get(n.id) || 0
-          const r = Math.min(8 + slides * 1.0, 18)
+          const r = planetRadius(slidesByNodeId.get(n.id) || 0)
           const dx = p.x - cx, dy = p.y - cy
           const len = Math.hypot(dx, dy) || 1
           const ux = dx / len, uy = dy / len
@@ -719,63 +805,39 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
           const p = positions.get(nid); if (!p) return null
           const isSel = selectedNid === nid
           const isHl = highlightedNids.has(nid)
+          const state: PlanetState = isSel ? 'selected' : isHl ? 'highlighted' : 'idle'
           const lexs = lexsByNid.get(nid) || []
-          const dimmed = isNodeDimmed(nid)
-          const slides = slidesByNodeId.get(n.id) || 0
-          const baseR = planetRadius(slides)
-          const r = isSel ? baseR + 4 : baseR
-          const moonOrbitR = r + 8
-          const haloR = r + 8
-          const tier = String(n.data.tier ?? '')
-          const tierFs = Math.max(7, baseR * 0.85) / z
+          const baseR = planetRadius(slidesByNodeId.get(n.id) || 0)
+          const moonOrbitR = planetOuterR(baseR, state) + 8
           return (
-            <g key={n.id}
-               onMouseEnter={() => setHoverIfIdle(nid)}
-               onMouseLeave={() => setHoverIfIdle(null)}
-               style={{ opacity: dimmed ? 0.25 : 1, transition: 'opacity 150ms' }}>
-              {(isSel || isHl) && (
-                <circle cx={p.x} cy={p.y} r={haloR}
-                  fill={isHl ? COSMOS.highlight : p.color} opacity={0.3}
-                  pointerEvents="none" />
-              )}
-              {/* Duolingo "lift": ciemniejsza tarcza przesunięta w dół, daje wrażenie chunky 3D buttona */}
-              <circle cx={p.x} cy={p.y + Math.max(2, r * 0.18)} r={r}
-                fill={darken(p.color)} style={{ pointerEvents: 'none' }} />
-              {/* Główne ciało żetonu — flat saturated color */}
-              <circle cx={p.x} cy={p.y} r={r}
-                fill={p.color}
-                stroke={isSel || isHl ? COSMOS.label : 'none'} strokeWidth={2}
-                style={{ cursor: 'pointer' }}
-                onClick={(e) => { e.stopPropagation(); tryClick(() => selectByNid(treeId, nid)) }} />
-
-              {tier && (
-                <text x={p.x} y={p.y + tierFs * 0.35} textAnchor="middle"
-                  fontSize={tierFs} fill={COSMOS.labelStroke} fontWeight={700}
-                  style={{ pointerEvents: 'none' }}>
-                  {tier}
-                </text>
-              )}
-
+            <React.Fragment key={n.id}>
+              <Planet
+                x={p.x} y={p.y}
+                color={p.color}
+                baseR={baseR}
+                state={state}
+                tier={String(n.data.tier ?? '') || undefined}
+                zoomFactor={z}
+                dimmed={isNodeDimmed(nid)}
+                onMouseEnter={() => setHoverIfIdle(nid)}
+                onMouseLeave={() => setHoverIfIdle(null)}
+                onClick={() => tryClick(() => selectByNid(treeId, nid))}
+              />
               {lexs.map((lex, i) => {
                 const ang = (i / Math.max(lexs.length, 1)) * Math.PI * 2
-                const mx = p.x + Math.cos(ang) * moonOrbitR
-                const my = p.y + Math.sin(ang) * moonOrbitR
-                const mc = catColor(String(lex.data.category || ''))
-                const moonSel = selectedLexId === lex.id
-                const moonRel = relatedLexIds.has(lex.id)
                 return (
-                  <g key={lex.id}>
-                    {moonRel && <circle cx={mx} cy={my} r={5} fill="none" stroke={COSMOS.highlight} strokeOpacity={0.55} strokeWidth={1} />}
-                    <circle cx={mx} cy={my} r={moonSel ? 4 : 2.6}
-                      fill={mc} stroke={moonSel ? COSMOS.label : 'none'} strokeWidth={1}
-                      style={{ cursor: 'pointer' }}
-                      onClick={(e) => { e.stopPropagation(); tryClick(() => selectByLex(lex.id)) }}>
-                      <title>{String(lex.data.term)} · {String(lex.data.category || 'inne')}</title>
-                    </circle>
-                  </g>
+                  <Moon key={lex.id}
+                    x={p.x + Math.cos(ang) * moonOrbitR}
+                    y={p.y + Math.sin(ang) * moonOrbitR}
+                    color={catColor(String(lex.data.category || ''))}
+                    selected={selectedLexId === lex.id}
+                    related={relatedLexIds.has(lex.id)}
+                    title={`${String(lex.data.term)} · ${String(lex.data.category || 'inne')}`}
+                    onClick={() => tryClick(() => selectByLex(lex.id))}
+                  />
                 )
               })}
-            </g>
+            </React.Fragment>
           )
         })}
       </>
@@ -793,8 +855,7 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
             const isHov = hovered === nid
             const op = labelOpacity(isSel || isHl, isHov)
             if (op <= 0) return null
-            const slides = slidesByNodeId.get(n.id) || 0
-            const baseR = Math.min(8 + slides * 1.0, 18)
+            const baseR = planetRadius(slidesByNodeId.get(n.id) || 0)
             return (
               <Label key={n.id}
                 x={p.x} y={p.y + baseR + 14}

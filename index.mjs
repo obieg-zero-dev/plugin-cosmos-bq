@@ -1347,6 +1347,117 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
         )
       ] });
     };
+    const planetGeom = (baseR, state) => {
+      const r = state === "selected" ? baseR + 4 : baseR;
+      return {
+        r,
+        // promień korpusu (selected = +4)
+        haloR: r + 8,
+        // zewnętrzny krąg aureoli
+        liftOff: Math.max(2, r * 0.18)
+        // przesunięcie ciemnej tarczy "lift" w dół (chunky 3D)
+      };
+    };
+    const planetOuterR = (baseR, state) => planetGeom(baseR, state).r;
+    const Planet = (p) => {
+      const { r, haloR, liftOff } = planetGeom(p.baseR, p.state);
+      const isSel = p.state === "selected";
+      const isHl = p.state === "highlighted";
+      const haloColor = isHl ? COSMOS.highlight : p.color;
+      const tierFs = Math.max(7, p.baseR * 0.85) / p.zoomFactor;
+      return /* @__PURE__ */ jsxs(
+        "g",
+        {
+          onMouseEnter: p.onMouseEnter,
+          onMouseLeave: p.onMouseLeave,
+          style: { opacity: p.dimmed ? 0.25 : 1, transition: "opacity 150ms" },
+          children: [
+            (isSel || isHl) && /* @__PURE__ */ jsx(
+              "circle",
+              {
+                cx: p.x,
+                cy: p.y,
+                r: haloR,
+                fill: haloColor,
+                opacity: 0.3,
+                pointerEvents: "none"
+              }
+            ),
+            /* @__PURE__ */ jsx(
+              "circle",
+              {
+                cx: p.x,
+                cy: p.y + liftOff,
+                r,
+                fill: darken(p.color),
+                pointerEvents: "none"
+              }
+            ),
+            /* @__PURE__ */ jsx(
+              "circle",
+              {
+                cx: p.x,
+                cy: p.y,
+                r,
+                fill: p.color,
+                stroke: isSel || isHl ? COSMOS.label : "none",
+                strokeWidth: 2,
+                style: { cursor: p.onClick ? "pointer" : "default" },
+                onClick: p.onClick ? (e) => {
+                  e.stopPropagation();
+                  p.onClick();
+                } : void 0
+              }
+            ),
+            p.tier && /* @__PURE__ */ jsx(
+              "text",
+              {
+                x: p.x,
+                y: p.y + tierFs * 0.35,
+                textAnchor: "middle",
+                fontSize: tierFs,
+                fill: COSMOS.labelStroke,
+                fontWeight: 700,
+                pointerEvents: "none",
+                children: p.tier
+              }
+            )
+          ]
+        }
+      );
+    };
+    const Moon = (p) => /* @__PURE__ */ jsxs("g", { children: [
+      p.related && /* @__PURE__ */ jsx(
+        "circle",
+        {
+          cx: p.x,
+          cy: p.y,
+          r: 5,
+          fill: "none",
+          stroke: COSMOS.highlight,
+          strokeOpacity: 0.55,
+          strokeWidth: 1,
+          pointerEvents: "none"
+        }
+      ),
+      /* @__PURE__ */ jsx(
+        "circle",
+        {
+          cx: p.x,
+          cy: p.y,
+          r: p.selected ? 4 : 2.6,
+          fill: p.color,
+          stroke: p.selected ? COSMOS.label : "none",
+          strokeWidth: 1,
+          style: { cursor: p.onClick ? "pointer" : "default" },
+          onClick: p.onClick ? (e) => {
+            e.stopPropagation();
+            p.onClick();
+          } : void 0,
+          children: /* @__PURE__ */ jsx("title", { children: p.title })
+        }
+      )
+    ] });
     const orbitsLayer = useMemo(() => {
       return /* @__PURE__ */ jsxs(Fragment, { children: [
         orbits.map((o) => /* @__PURE__ */ jsx(
@@ -1483,8 +1594,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
         const nid = String(n.data.nodeId);
         const p = positions.get(nid);
         if (!p) return null;
-        const slides = slidesByNodeId.get(n.id) || 0;
-        const r = Math.min(8 + slides * 1, 18);
+        const r = planetRadius(slidesByNodeId.get(n.id) || 0);
         const dx = p.x - cx, dy = p.y - cy;
         const len = Math.hypot(dx, dy) || 1;
         const ux = dx / len, uy = dy / len;
@@ -1514,108 +1624,44 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
         if (!p) return null;
         const isSel = selectedNid === nid;
         const isHl = highlightedNids.has(nid);
+        const state = isSel ? "selected" : isHl ? "highlighted" : "idle";
         const lexs = lexsByNid.get(nid) || [];
-        const dimmed = isNodeDimmed(nid);
-        const slides = slidesByNodeId.get(n.id) || 0;
-        const baseR = planetRadius(slides);
-        const r = isSel ? baseR + 4 : baseR;
-        const moonOrbitR = r + 8;
-        const haloR = r + 8;
-        const tier = String(n.data.tier ?? "");
-        const tierFs = Math.max(7, baseR * 0.85) / z;
-        return /* @__PURE__ */ jsxs(
-          "g",
-          {
-            onMouseEnter: () => setHoverIfIdle(nid),
-            onMouseLeave: () => setHoverIfIdle(null),
-            style: { opacity: dimmed ? 0.25 : 1, transition: "opacity 150ms" },
-            children: [
-              (isSel || isHl) && /* @__PURE__ */ jsx(
-                "circle",
-                {
-                  cx: p.x,
-                  cy: p.y,
-                  r: haloR,
-                  fill: isHl ? COSMOS.highlight : p.color,
-                  opacity: 0.3,
-                  pointerEvents: "none"
-                }
-              ),
-              /* @__PURE__ */ jsx(
-                "circle",
-                {
-                  cx: p.x,
-                  cy: p.y + Math.max(2, r * 0.18),
-                  r,
-                  fill: darken(p.color),
-                  style: { pointerEvents: "none" }
-                }
-              ),
-              /* @__PURE__ */ jsx(
-                "circle",
-                {
-                  cx: p.x,
-                  cy: p.y,
-                  r,
-                  fill: p.color,
-                  stroke: isSel || isHl ? COSMOS.label : "none",
-                  strokeWidth: 2,
-                  style: { cursor: "pointer" },
-                  onClick: (e) => {
-                    e.stopPropagation();
-                    tryClick(() => selectByNid(treeId, nid));
-                  }
-                }
-              ),
-              tier && /* @__PURE__ */ jsx(
-                "text",
-                {
-                  x: p.x,
-                  y: p.y + tierFs * 0.35,
-                  textAnchor: "middle",
-                  fontSize: tierFs,
-                  fill: COSMOS.labelStroke,
-                  fontWeight: 700,
-                  style: { pointerEvents: "none" },
-                  children: tier
-                }
-              ),
-              lexs.map((lex, i) => {
-                const ang = i / Math.max(lexs.length, 1) * Math.PI * 2;
-                const mx = p.x + Math.cos(ang) * moonOrbitR;
-                const my = p.y + Math.sin(ang) * moonOrbitR;
-                const mc = catColor(String(lex.data.category || ""));
-                const moonSel = selectedLexId === lex.id;
-                const moonRel = relatedLexIds.has(lex.id);
-                return /* @__PURE__ */ jsxs("g", { children: [
-                  moonRel && /* @__PURE__ */ jsx("circle", { cx: mx, cy: my, r: 5, fill: "none", stroke: COSMOS.highlight, strokeOpacity: 0.55, strokeWidth: 1 }),
-                  /* @__PURE__ */ jsx(
-                    "circle",
-                    {
-                      cx: mx,
-                      cy: my,
-                      r: moonSel ? 4 : 2.6,
-                      fill: mc,
-                      stroke: moonSel ? COSMOS.label : "none",
-                      strokeWidth: 1,
-                      style: { cursor: "pointer" },
-                      onClick: (e) => {
-                        e.stopPropagation();
-                        tryClick(() => selectByLex(lex.id));
-                      },
-                      children: /* @__PURE__ */ jsxs("title", { children: [
-                        String(lex.data.term),
-                        " · ",
-                        String(lex.data.category || "inne")
-                      ] })
-                    }
-                  )
-                ] }, lex.id);
-              })
-            ]
-          },
-          n.id
-        );
+        const baseR = planetRadius(slidesByNodeId.get(n.id) || 0);
+        const moonOrbitR = planetOuterR(baseR, state) + 8;
+        return /* @__PURE__ */ jsxs(React.Fragment, { children: [
+          /* @__PURE__ */ jsx(
+            Planet,
+            {
+              x: p.x,
+              y: p.y,
+              color: p.color,
+              baseR,
+              state,
+              tier: String(n.data.tier ?? "") || void 0,
+              zoomFactor: z,
+              dimmed: isNodeDimmed(nid),
+              onMouseEnter: () => setHoverIfIdle(nid),
+              onMouseLeave: () => setHoverIfIdle(null),
+              onClick: () => tryClick(() => selectByNid(treeId, nid))
+            }
+          ),
+          lexs.map((lex, i) => {
+            const ang = i / Math.max(lexs.length, 1) * Math.PI * 2;
+            return /* @__PURE__ */ jsx(
+              Moon,
+              {
+                x: p.x + Math.cos(ang) * moonOrbitR,
+                y: p.y + Math.sin(ang) * moonOrbitR,
+                color: catColor(String(lex.data.category || "")),
+                selected: selectedLexId === lex.id,
+                related: relatedLexIds.has(lex.id),
+                title: `${String(lex.data.term)} · ${String(lex.data.category || "inne")}`,
+                onClick: () => tryClick(() => selectByLex(lex.id))
+              },
+              lex.id
+            );
+          })
+        ] }, n.id);
       }) });
     }, [nodes, positions, lexsByNid, slidesByNodeId, selectedNid, selectedLexId, relatedLexIds, highlightedNids, treeId, neighborSet, z]);
     const labelsLayer = useMemo(() => {
@@ -1628,8 +1674,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
         const isHov = hovered === nid;
         const op = labelOpacity(isSel || isHl, isHov);
         if (op <= 0) return null;
-        const slides = slidesByNodeId.get(n.id) || 0;
-        const baseR = Math.min(8 + slides * 1, 18);
+        const baseR = planetRadius(slidesByNodeId.get(n.id) || 0);
         return /* @__PURE__ */ jsx(
           Label,
           {
