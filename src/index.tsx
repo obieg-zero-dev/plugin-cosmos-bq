@@ -161,7 +161,6 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
       onDeselect={() => useNav.setState({ selectedNid: null, selectedLexId: null })}
       contextBranchPrefix={CONTEXT_BRANCH_PREFIX}
       placeholder={<ui.Placeholder text="Drzewo nie ma węzłów" />}
-      quiet
     />
   }
 

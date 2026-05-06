@@ -3856,6 +3856,9 @@ function CosmosGraph(props) {
     };
   }, []);
   useEffect(() => {
+    if (selectedNid && simRef.current) simRef.current.alpha(0).stop();
+  }, [selectedNid]);
+  useEffect(() => {
     if (quiet) return;
     if (!selectedNid || !svgRef.current || !gRef.current) return;
     const p = positions.get(selectedNid);
@@ -4620,8 +4623,7 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
         onSelectMoon: selectByLex,
         onDeselect: () => useNav.setState({ selectedNid: null, selectedLexId: null }),
         contextBranchPrefix: CONTEXT_BRANCH_PREFIX,
-        placeholder: /* @__PURE__ */ jsx(ui.Placeholder, { text: "Drzewo nie ma węzłów" }),
-        quiet: true
+        placeholder: /* @__PURE__ */ jsx(ui.Placeholder, { text: "Drzewo nie ma węzłów" })
       }
     );
   }
