@@ -4326,23 +4326,15 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
     selectedNid: null,
     selectedLexId: null
   }));
+  const slugify = (s) => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || String(Date.now());
   const selectByNid = (treeId, nid) => {
     const node = store.getPosts("node").find((n) => n.parentId === treeId && String(n.data.nodeId) === nid);
     useNav.setState({ selectedNid: nid, selectedLexId: null });
     if (node) sdk.shared.setState({ bq: { treeId, nodeId: nid, postId: node.id } });
   };
   const selectByLex = (lexId) => useNav.setState({ selectedLexId: lexId, selectedNid: null });
-  const tierLabel = (branchKey, tier) => {
-    const n = String(tier ?? "").trim();
-    if (!n || n === "0") return "";
-    const k = String(branchKey || "").toLowerCase();
-    if (k.startsWith("epok")) return `epoka ${n}`;
-    if (k.startsWith("lektur")) return `poziom ${n}`;
-    if (k.startsWith(CONTEXT_BRANCH_PREFIX)) return "";
-    return `tier ${n}`;
-  };
-  const Dot = ({ color: color2 }) => /* @__PURE__ */ jsx("span", { style: { display: "inline-block", width: 8, height: 8, borderRadius: 4, background: color2, marginRight: 6 } });
   const branchOf2 = (n) => String(n.data.branch || "") || NO_BRANCH2;
+  const Dot = ({ color: color2 }) => /* @__PURE__ */ jsx("span", { style: { display: "inline-block", width: 8, height: 8, borderRadius: 4, background: color2, marginRight: 6 } });
   const usedBranchInfos = (nodes, branches) => {
     const byKey = new Map(branches.map((b) => [String(b.data.key), b]));
     const used = [];
@@ -4365,6 +4357,45 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
       };
     });
   };
+  function EditField({ label, value, onSave }) {
+    const [v, setV] = useState2(value);
+    useEffect2(() => {
+      setV(value);
+    }, [value]);
+    return /* @__PURE__ */ jsx(ui.Field, { label, children: /* @__PURE__ */ jsx(
+      ui.Input,
+      {
+        value: v,
+        onChange: (e) => setV(e.target.value),
+        onBlur: () => {
+          if (v !== value) onSave(v);
+        }
+      }
+    ) });
+  }
+  function AddRow({ placeholder, onAdd: onAdd2 }) {
+    const [v, setV] = useState2("");
+    const submit = () => {
+      const t = v.trim();
+      if (!t) return;
+      onAdd2(t);
+      setV("");
+    };
+    return /* @__PURE__ */ jsxs(ui.Row, { children: [
+      /* @__PURE__ */ jsx(
+        ui.Input,
+        {
+          value: v,
+          placeholder,
+          onChange: (e) => setV(e.target.value),
+          onKeyDown: (e) => {
+            if (e.key === "Enter") submit();
+          }
+        }
+      ),
+      /* @__PURE__ */ jsx(ui.Button, { size: "xs", onClick: submit, children: "Dodaj" })
+    ] });
+  }
   function LeftPanel() {
     const trees = store.usePosts("tree");
     const { treeId, selectedNid } = useNav();
@@ -4391,6 +4422,17 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
         return { ...info, nodes: sorted };
       });
     }, [nodes, branches]);
+    const addNode = (branchKey, title) => {
+      if (!treeId) return;
+      const nid = slugify(title);
+      const tier = nodes.filter((n) => branchOf2(n) === branchKey).length + 1;
+      store.add(
+        "node",
+        { nodeId: nid, title, branch: branchKey === NO_BRANCH2 ? "" : branchKey, tier, hits: 0 },
+        { parentId: treeId }
+      );
+      selectByNid(treeId, nid);
+    };
     if (trees.length === 0) {
       return /* @__PURE__ */ jsx(
         ui.Box,
@@ -4431,11 +4473,17 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
                 {
                   active: selectedNid === nid,
                   label: String(n.data.title),
-                  onClick: () => selectByNid(treeId, nid)
+                  onClick: () => selectByNid(treeId, nid),
+                  action: /* @__PURE__ */ jsx(ui.RemoveButton, { onClick: () => {
+                    if (!confirm(`Usunąć węzeł „${n.data.title}"?`)) return;
+                    store.remove(n.id);
+                    if (selectedNid === nid) useNav.setState({ selectedNid: null });
+                  } })
                 },
                 n.id
               );
-            })
+            }),
+            /* @__PURE__ */ jsx(AddRow, { placeholder: `+ węzeł w „${g.label}"`, onAdd: (t) => addNode(g.key, t) })
           ] }, g.key))
         ] })
       }
@@ -4469,238 +4517,242 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
   function CenterPanel() {
     return /* @__PURE__ */ jsx(ui.Page, { children: /* @__PURE__ */ jsx(GraphView, {}) });
   }
-  const buildTerms = (lexs) => lexs.map((lex) => ({ id: lex.id, term: String(lex.data.term) }));
-  function SlidesViewer({ node, myLexs }) {
-    const allContent = store.useChildren(node.id, "content");
-    const slides = useMemo2(() => allContent.filter((c2) => String(c2.data.contentType) !== "quiz"), [allContent]);
-    const terms = useMemo2(() => buildTerms(myLexs), [myLexs]);
-    const [idx, setIdx] = useState2(0);
-    const [loading, setLoading] = useState2(false);
-    useEffect2(() => {
-      setIdx(0);
-    }, [node.id]);
-    useEffect2(() => {
-      var _a;
-      const h = (_a = sdk.shared.getState()) == null ? void 0 : _a.bqHelpers;
-      if (!(h == null ? void 0 : h.loadNodeContent)) return;
-      setLoading(true);
-      h.loadNodeContent(node.parentId, String(node.data.nodeId)).finally(() => setLoading(false));
-    }, [node.id]);
-    const safeIdx = Math.min(idx, Math.max(0, slides.length - 1));
-    const slide = slides[safeIdx];
-    if (slides.length === 0) {
-      return /* @__PURE__ */ jsx(ui.Text, { size: "xs", muted: true, children: loading ? "Wczytuję treści…" : "Brak treści dla tego węzła." });
-    }
-    return /* @__PURE__ */ jsxs(ui.Stack, { gap: "sm", children: [
-      /* @__PURE__ */ jsxs(ui.Row, { justify: "between", children: [
-        /* @__PURE__ */ jsxs(ui.Text, { size: "xs", muted: true, children: [
-          "Slajd ",
-          safeIdx + 1,
-          " / ",
-          slides.length
-        ] }),
-        /* @__PURE__ */ jsxs(ui.Row, { children: [
-          /* @__PURE__ */ jsx(
-            ui.Button,
-            {
-              size: "xs",
-              outline: true,
-              disabled: safeIdx <= 0,
-              onClick: () => setIdx((i) => Math.max(0, i - 1)),
-              children: "‹"
-            }
-          ),
-          /* @__PURE__ */ jsx(
-            ui.Button,
-            {
-              size: "xs",
-              outline: true,
-              disabled: safeIdx >= slides.length - 1,
-              onClick: () => setIdx((i) => Math.min(slides.length - 1, i + 1)),
-              children: "›"
-            }
-          )
-        ] })
-      ] }),
-      /* @__PURE__ */ jsx(
-        ui.Markdown,
-        {
-          text: String((slide == null ? void 0 : slide.data.text) || ""),
-          terms,
-          onTermClick: (id2) => selectByLex(id2)
-        }
-      )
-    ] });
-  }
-  function RightPanel() {
-    const { treeId, selectedNid, selectedLexId } = useNav();
-    const nodes = store.useChildren(treeId || "", "node");
-    const edges = store.useChildren(treeId || "", "edge");
-    const lexicons = store.useChildren(treeId || "", "lexicon");
+  function NodeEditor({ node, treeId }) {
+    const nid = String(node.data.nodeId);
+    const branches = store.useChildren(treeId, "branch");
+    const relTypes = store.useChildren(treeId, "relType");
+    const allNodes = store.useChildren(treeId, "node");
+    const allLexs = store.useChildren(treeId, "lexicon");
+    const allEdges = store.useChildren(treeId, "edge");
     const allLexNodes = store.usePosts("lexNode");
-    const lexById = useMemo2(() => new Map(lexicons.map((l) => [l.id, l])), [lexicons]);
-    const nodeByNid = useMemo2(() => {
-      const m2 = /* @__PURE__ */ new Map();
-      for (const n of nodes) m2.set(String(n.data.nodeId), n);
-      return m2;
-    }, [nodes]);
-    if (selectedLexId) {
-      const lex = lexById.get(selectedLexId);
-      if (!lex) return /* @__PURE__ */ jsx(ui.Placeholder, { text: "Termin nie istnieje" });
-      const myNidSet = /* @__PURE__ */ new Set();
-      for (const ln of allLexNodes) {
-        if (ln.parentId === selectedLexId) myNidSet.add(String(ln.data.nid));
-      }
-      const containingNodes = nodes.filter((n) => myNidSet.has(String(n.data.nodeId)));
-      const counter = /* @__PURE__ */ new Map();
-      for (const ln of allLexNodes) {
-        if (ln.parentId === selectedLexId) continue;
-        if (!myNidSet.has(String(ln.data.nid))) continue;
-        counter.set(ln.parentId, (counter.get(ln.parentId) || 0) + 1);
-      }
-      const related = [];
-      for (const [lexId, count] of counter) {
-        const l = lexById.get(lexId);
-        if (l) related.push({ lex: l, count });
-      }
-      related.sort((a2, b) => b.count - a2.count);
-      return /* @__PURE__ */ jsx(ui.Page, { children: /* @__PURE__ */ jsxs(ui.Stack, { children: [
-        /* @__PURE__ */ jsx(
-          ui.Heading,
-          {
-            title: String(lex.data.term),
-            subtitle: String(lex.data.category || "termin")
-          }
-        ),
-        /* @__PURE__ */ jsx(ui.Text, { size: "sm", children: String(lex.data.definition || "—") }),
-        /* @__PURE__ */ jsx(ui.Divider, {}),
-        /* @__PURE__ */ jsxs(ui.Cell, { label: true, children: [
-          "Występuje w (",
-          containingNodes.length,
-          ")"
-        ] }),
-        containingNodes.length === 0 && /* @__PURE__ */ jsx(ui.Text, { muted: true, size: "xs", children: "brak" }),
-        containingNodes.map((n) => /* @__PURE__ */ jsx(
-          ui.ListItem,
-          {
-            label: String(n.data.title),
-            detail: String(n.data.branch || ""),
-            onClick: () => selectByNid(treeId, String(n.data.nodeId))
-          },
-          n.id
-        )),
-        /* @__PURE__ */ jsx(ui.Divider, {}),
-        /* @__PURE__ */ jsxs(ui.Cell, { label: true, children: [
-          "Powiązane terminy (",
-          related.length,
-          ")"
-        ] }),
-        related.length === 0 && /* @__PURE__ */ jsx(ui.Text, { muted: true, size: "xs", children: "brak współwystępujących" }),
-        related.map((r) => /* @__PURE__ */ jsx(
-          ui.ListItem,
-          {
-            label: /* @__PURE__ */ jsxs(Fragment, { children: [
-              /* @__PURE__ */ jsx(Dot, { color: catColor(String(r.lex.data.category || "")) }),
-              String(r.lex.data.term)
-            ] }),
-            detail: `${r.count} wspólnych węzłów · ${String(r.lex.data.category || "")}`,
-            onClick: () => selectByLex(r.lex.id)
-          },
-          r.lex.id
-        ))
-      ] }) });
-    }
-    const node = selectedNid ? nodeByNid.get(selectedNid) : void 0;
-    if (!node) return /* @__PURE__ */ jsx(ui.Placeholder, { text: "Wybierz węzeł lub termin" });
-    const myLexs = [];
-    for (const ln of allLexNodes) {
-      if (String(ln.data.nid) !== selectedNid) continue;
-      const l = lexById.get(ln.parentId);
-      if (l) myLexs.push(l);
-    }
-    const lexsByCat = /* @__PURE__ */ new Map();
-    for (const l of myLexs) {
-      const c2 = String(l.data.category || "inne");
-      if (!lexsByCat.has(c2)) lexsByCat.set(c2, []);
-      lexsByCat.get(c2).push(l);
-    }
-    const titleOf = (nid) => {
+    const myLexs = useMemo2(() => {
+      const lexIds = /* @__PURE__ */ new Set();
+      for (const ln of allLexNodes) if (String(ln.data.nid) === nid) lexIds.add(ln.parentId);
+      return allLexs.filter((l) => lexIds.has(l.id));
+    }, [allLexNodes, allLexs, nid]);
+    const lexNodeFor = (lexId) => allLexNodes.find((ln) => ln.parentId === lexId && String(ln.data.nid) === nid);
+    const out = allEdges.filter((e) => e.data.fromNid === nid);
+    const inc = allEdges.filter((e) => e.data.toNid === nid);
+    const titleOf = (n) => {
       var _a;
-      return String(((_a = nodeByNid.get(nid)) == null ? void 0 : _a.data.title) ?? nid);
+      return String(((_a = allNodes.find((x2) => String(x2.data.nodeId) === n)) == null ? void 0 : _a.data.title) ?? n);
     };
-    const out = edges.filter((e) => e.data.fromNid === selectedNid);
-    const inc = edges.filter((e) => e.data.toNid === selectedNid);
-    return /* @__PURE__ */ jsx(ui.Page, { children: /* @__PURE__ */ jsxs(ui.Stack, { children: [
-      /* @__PURE__ */ jsx(ui.Heading, { title: String(node.data.title), subtitle: `#${selectedNid}` }),
-      /* @__PURE__ */ jsxs(ui.Row, { children: [
-        node.data.branch ? /* @__PURE__ */ jsx(ui.Badge, { children: String(node.data.branch) }) : null,
-        (() => {
-          const lbl = tierLabel(String(node.data.branch || ""), node.data.tier);
-          return lbl ? /* @__PURE__ */ jsx(ui.Text, { size: "xs", muted: true, children: lbl }) : null;
-        })()
+    const branchOpts = [
+      { value: "", label: "— bez gałęzi —" },
+      ...branches.map((b) => ({ value: String(b.data.key), label: String(b.data.label) }))
+    ];
+    const relOpts = relTypes.map((r) => ({ value: String(r.data.key), label: String(r.data.label) }));
+    const nodeOpts = allNodes.filter((n) => String(n.data.nodeId) !== nid).map((n) => ({ value: String(n.data.nodeId), label: String(n.data.title) }));
+    const [edgeTo, setEdgeTo] = useState2("");
+    const [edgeType, setEdgeType] = useState2("");
+    useEffect2(() => {
+      if (!edgeType && relOpts[0]) setEdgeType(relOpts[0].value);
+    }, [relOpts.length]);
+    const addTerm = (term) => {
+      const lex = store.add("lexicon", { term, definition: "", category: "" }, { parentId: treeId });
+      store.add("lexNode", { nid }, { parentId: lex.id });
+    };
+    const unlinkTerm = (lexId) => {
+      const ln = lexNodeFor(lexId);
+      if (ln) store.remove(ln.id);
+    };
+    const addEdge = () => {
+      if (!edgeTo || !edgeType) return;
+      store.add("edge", { fromNid: nid, toNid: edgeTo, type: edgeType }, { parentId: treeId });
+      setEdgeTo("");
+    };
+    return /* @__PURE__ */ jsxs(ui.Stack, { children: [
+      /* @__PURE__ */ jsx(
+        EditField,
+        {
+          label: "Tytuł",
+          value: String(node.data.title),
+          onSave: (v) => store.update(node.id, { title: v })
+        }
+      ),
+      /* @__PURE__ */ jsx(ui.Field, { label: "Gałąź", children: /* @__PURE__ */ jsx(
+        ui.Select,
+        {
+          value: String(node.data.branch || ""),
+          options: branchOpts,
+          onChange: (e) => store.update(node.id, { branch: e.target.value })
+        }
+      ) }),
+      /* @__PURE__ */ jsx(
+        EditField,
+        {
+          label: "Tier",
+          value: String(node.data.tier ?? ""),
+          onSave: (v) => store.update(node.id, { tier: v })
+        }
+      ),
+      /* @__PURE__ */ jsxs(ui.Text, { size: "xs", muted: true, children: [
+        "id: ",
+        nid
       ] }),
-      /* @__PURE__ */ jsx(ui.Divider, {}),
-      /* @__PURE__ */ jsx(SlidesViewer, { node, myLexs }),
       /* @__PURE__ */ jsx(ui.Divider, {}),
       /* @__PURE__ */ jsxs(ui.Cell, { label: true, children: [
         "Terminy (",
         myLexs.length,
         ")"
       ] }),
-      myLexs.length === 0 && /* @__PURE__ */ jsx(ui.Text, { muted: true, size: "xs", children: "brak" }),
-      Array.from(lexsByCat.entries()).map(([cat, ls]) => /* @__PURE__ */ jsxs(React.Fragment, { children: [
-        /* @__PURE__ */ jsxs(ui.Row, { children: [
-          /* @__PURE__ */ jsx(Dot, { color: catColor(cat) }),
-          /* @__PURE__ */ jsxs(ui.Text, { size: "xs", muted: true, children: [
-            cat,
-            " (",
-            ls.length,
-            ")"
-          ] })
-        ] }),
-        ls.map((l) => /* @__PURE__ */ jsx(
-          ui.ListItem,
-          {
-            label: String(l.data.term),
-            detail: String(l.data.definition || "").slice(0, 60),
-            onClick: () => selectByLex(l.id)
-          },
-          l.id
-        ))
-      ] }, cat)),
+      myLexs.map((l) => /* @__PURE__ */ jsx(
+        ui.ListItem,
+        {
+          label: String(l.data.term),
+          detail: String(l.data.definition || "").slice(0, 60),
+          onClick: () => selectByLex(l.id),
+          action: /* @__PURE__ */ jsx(ui.RemoveButton, { onClick: () => unlinkTerm(l.id) })
+        },
+        l.id
+      )),
+      /* @__PURE__ */ jsx(AddRow, { placeholder: "+ termin", onAdd: addTerm }),
       /* @__PURE__ */ jsx(ui.Divider, {}),
       /* @__PURE__ */ jsxs(ui.Cell, { label: true, children: [
         "Wychodzące (",
         out.length,
         ")"
       ] }),
-      out.length === 0 && /* @__PURE__ */ jsx(ui.Text, { muted: true, size: "xs", children: "brak" }),
       out.map((e) => /* @__PURE__ */ jsx(
         ui.ListItem,
         {
           label: titleOf(String(e.data.toNid)),
-          detail: e.data.type ? String(e.data.type) : void 0,
-          onClick: () => selectByNid(treeId, String(e.data.toNid))
+          detail: String(e.data.type || ""),
+          onClick: () => selectByNid(treeId, String(e.data.toNid)),
+          action: /* @__PURE__ */ jsx(ui.RemoveButton, { onClick: () => store.remove(e.id) })
         },
         e.id
       )),
+      /* @__PURE__ */ jsxs(ui.Row, { children: [
+        /* @__PURE__ */ jsx(
+          ui.Select,
+          {
+            value: edgeTo,
+            options: [{ value: "", label: "— cel —" }, ...nodeOpts],
+            onChange: (e) => setEdgeTo(e.target.value)
+          }
+        ),
+        /* @__PURE__ */ jsx(
+          ui.Select,
+          {
+            value: edgeType,
+            options: relOpts,
+            onChange: (e) => setEdgeType(e.target.value)
+          }
+        ),
+        /* @__PURE__ */ jsx(ui.Button, { size: "xs", onClick: addEdge, children: "Dodaj" })
+      ] }),
       /* @__PURE__ */ jsx(ui.Divider, {}),
       /* @__PURE__ */ jsxs(ui.Cell, { label: true, children: [
         "Przychodzące (",
         inc.length,
         ")"
       ] }),
-      inc.length === 0 && /* @__PURE__ */ jsx(ui.Text, { muted: true, size: "xs", children: "brak" }),
       inc.map((e) => /* @__PURE__ */ jsx(
         ui.ListItem,
         {
           label: titleOf(String(e.data.fromNid)),
-          detail: e.data.type ? String(e.data.type) : void 0,
+          detail: String(e.data.type || ""),
           onClick: () => selectByNid(treeId, String(e.data.fromNid))
         },
         e.id
       ))
-    ] }) });
+    ] });
+  }
+  function LexEditor({ lex, treeId }) {
+    const nodes = store.useChildren(treeId, "node");
+    const allLexNodes = store.usePosts("lexNode");
+    const myNidSet = useMemo2(() => {
+      const s = /* @__PURE__ */ new Set();
+      for (const ln of allLexNodes) if (ln.parentId === lex.id) s.add(String(ln.data.nid));
+      return s;
+    }, [allLexNodes, lex.id]);
+    const containing = nodes.filter((n) => myNidSet.has(String(n.data.nodeId)));
+    const lexNodeFor = (nid) => allLexNodes.find((ln) => ln.parentId === lex.id && String(ln.data.nid) === nid);
+    const nodeOpts = nodes.filter((n) => !myNidSet.has(String(n.data.nodeId))).map((n) => ({ value: String(n.data.nodeId), label: String(n.data.title) }));
+    const [linkNid, setLinkNid] = useState2("");
+    const addLink = () => {
+      if (!linkNid) return;
+      store.add("lexNode", { nid: linkNid }, { parentId: lex.id });
+      setLinkNid("");
+    };
+    const removeLink = (nid) => {
+      const ln = lexNodeFor(nid);
+      if (ln) store.remove(ln.id);
+    };
+    const removeLex = () => {
+      if (!confirm(`Usunąć termin „${lex.data.term}"?`)) return;
+      store.remove(lex.id);
+      useNav.setState({ selectedLexId: null });
+    };
+    return /* @__PURE__ */ jsxs(ui.Stack, { children: [
+      /* @__PURE__ */ jsx(
+        EditField,
+        {
+          label: "Termin",
+          value: String(lex.data.term),
+          onSave: (v) => store.update(lex.id, { term: v })
+        }
+      ),
+      /* @__PURE__ */ jsx(
+        EditField,
+        {
+          label: "Definicja",
+          value: String(lex.data.definition || ""),
+          onSave: (v) => store.update(lex.id, { definition: v })
+        }
+      ),
+      /* @__PURE__ */ jsx(
+        EditField,
+        {
+          label: "Kategoria",
+          value: String(lex.data.category || ""),
+          onSave: (v) => store.update(lex.id, { category: v })
+        }
+      ),
+      /* @__PURE__ */ jsx(ui.Row, { children: /* @__PURE__ */ jsx(ui.Button, { size: "xs", outline: true, onClick: removeLex, children: "Usuń termin" }) }),
+      /* @__PURE__ */ jsx(ui.Divider, {}),
+      /* @__PURE__ */ jsxs(ui.Cell, { label: true, children: [
+        "Występuje w (",
+        containing.length,
+        ")"
+      ] }),
+      containing.map((n) => /* @__PURE__ */ jsx(
+        ui.ListItem,
+        {
+          label: String(n.data.title),
+          detail: String(n.data.branch || ""),
+          onClick: () => selectByNid(treeId, String(n.data.nodeId)),
+          action: /* @__PURE__ */ jsx(ui.RemoveButton, { onClick: () => removeLink(String(n.data.nodeId)) })
+        },
+        n.id
+      )),
+      /* @__PURE__ */ jsxs(ui.Row, { children: [
+        /* @__PURE__ */ jsx(
+          ui.Select,
+          {
+            value: linkNid,
+            options: [{ value: "", label: "— węzeł —" }, ...nodeOpts],
+            onChange: (e) => setLinkNid(e.target.value)
+          }
+        ),
+        /* @__PURE__ */ jsx(ui.Button, { size: "xs", onClick: addLink, children: "Powiąż" })
+      ] })
+    ] });
+  }
+  function RightPanel() {
+    const { treeId, selectedNid, selectedLexId } = useNav();
+    const nodes = store.useChildren(treeId || "", "node");
+    const lexicons = store.useChildren(treeId || "", "lexicon");
+    if (!treeId) return /* @__PURE__ */ jsx(ui.Placeholder, { text: "Wybierz drzewo" });
+    if (selectedLexId) {
+      const lex = lexicons.find((l) => l.id === selectedLexId);
+      if (!lex) return /* @__PURE__ */ jsx(ui.Placeholder, { text: "Termin nie istnieje" });
+      return /* @__PURE__ */ jsx(ui.Page, { children: /* @__PURE__ */ jsx(LexEditor, { lex, treeId }) });
+    }
+    const node = selectedNid ? nodes.find((n) => String(n.data.nodeId) === selectedNid) : void 0;
+    if (!node) return /* @__PURE__ */ jsx(ui.Placeholder, { text: "Wybierz węzeł lub termin" });
+    return /* @__PURE__ */ jsx(ui.Page, { children: /* @__PURE__ */ jsx(NodeEditor, { node, treeId }) });
   }
   sdk.registerView("cosmos.left", { slot: "left", component: LeftPanel });
   sdk.registerView("cosmos.center", { slot: "center", component: CenterPanel });
@@ -4708,9 +4760,9 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
   return {
     id: "cosmos-bq",
     label: "Kosmos BQ",
-    description: "Kosmiczny widok grafu BQ — orbity gałęzi + księżyce terminów (renderer: @obieg-zero/cosmos-graph)",
+    description: "Edytor grafu BQ — orbity gałęzi + księżyce terminów. Edycja danych w sidebarach (renderer: @obieg-zero/cosmos-graph)",
     icon: Share2 || GitBranch,
-    version: "0.6.0"
+    version: "0.7.0"
   };
 };
 export {

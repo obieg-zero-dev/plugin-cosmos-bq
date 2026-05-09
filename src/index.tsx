@@ -1,6 +1,6 @@
 import type { PluginFactory, PostRecord } from '@obieg-zero/sdk'
 import { CosmosGraph, COSMOS_TOKENS } from '@obieg-zero/cosmos-graph'
-import { useBqGraphData, catColor } from '@obieg-zero/bq-cosmos'
+import { useBqGraphData } from '@obieg-zero/bq-cosmos'
 
 const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
   const { useMemo, useEffect, useState } = React
@@ -16,6 +16,11 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
     selectedLexId: null as string | null,
   }))
 
+  // Slug stabilny dla nodeId — diakrytyki PL → ascii.
+  const slugify = (s: string) =>
+    s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+     .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || String(Date.now())
+
   const selectByNid = (treeId: string, nid: string) => {
     const node = (store.getPosts('node') as PostRecord[])
       .find(n => n.parentId === treeId && String(n.data.nodeId) === nid)
@@ -25,24 +30,12 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
   const selectByLex = (lexId: string) =>
     useNav.setState({ selectedLexId: lexId, selectedNid: null })
 
-  // Tier ma różną semantykę per gałąź — epoki=kolejność chronologiczna, lektury=trudność.
-  const tierLabel = (branchKey: string, tier: unknown): string => {
-    const n = String(tier ?? '').trim()
-    if (!n || n === '0') return ''
-    const k = String(branchKey || '').toLowerCase()
-    if (k.startsWith('epok')) return `epoka ${n}`
-    if (k.startsWith('lektur')) return `poziom ${n}`
-    if (k.startsWith(CONTEXT_BRANCH_PREFIX)) return ''
-    return `tier ${n}`
-  }
+  const branchOf = (n: PostRecord) => String(n.data.branch || '') || NO_BRANCH
 
   const Dot = ({ color }: { color: string }) => (
     <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 4, background: color, marginRight: 6 }} />
   )
 
-  const branchOf = (n: PostRecord) => String(n.data.branch || '') || NO_BRANCH
-
-  // Lista gałęzi widocznych w drzewie + ich kolory (do listy w LeftPanel).
   const usedBranchInfos = (nodes: PostRecord[], branches: PostRecord[]) => {
     const byKey = new Map(branches.map(b => [String(b.data.key), b]))
     const used: string[] = []
@@ -61,6 +54,32 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
         color: colorRaw ? tok(colorRaw) : tok(PALETTE[i % PALETTE.length]),
       }
     })
+  }
+
+  // Inline edit z auto-save na blur. Lokalny state żeby nie tracić cursor podczas re-renderu.
+  function EditField({ label, value, onSave }: { label: string; value: string; onSave: (v: string) => void }) {
+    const [v, setV] = useState(value)
+    useEffect(() => { setV(value) }, [value])
+    return (
+      <ui.Field label={label}>
+        <ui.Input value={v}
+          onChange={(e: { target: { value: string } }) => setV(e.target.value)}
+          onBlur={() => { if (v !== value) onSave(v) }} />
+      </ui.Field>
+    )
+  }
+
+  function AddRow({ placeholder, onAdd }: { placeholder: string; onAdd: (v: string) => void }) {
+    const [v, setV] = useState('')
+    const submit = () => { const t = v.trim(); if (!t) return; onAdd(t); setV('') }
+    return (
+      <ui.Row>
+        <ui.Input value={v} placeholder={placeholder}
+          onChange={(e: { target: { value: string } }) => setV(e.target.value)}
+          onKeyDown={(e: { key: string }) => { if (e.key === 'Enter') submit() }} />
+        <ui.Button size="xs" onClick={submit}>Dodaj</ui.Button>
+      </ui.Row>
+    )
   }
 
   function LeftPanel() {
@@ -90,12 +109,20 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
       })
     }, [nodes, branches])
 
+    const addNode = (branchKey: string, title: string) => {
+      if (!treeId) return
+      const nid = slugify(title)
+      const tier = nodes.filter(n => branchOf(n) === branchKey).length + 1
+      store.add('node',
+        { nodeId: nid, title, branch: branchKey === NO_BRANCH ? '' : branchKey, tier, hits: 0 },
+        { parentId: treeId })
+      selectByNid(treeId, nid)
+    }
+
     if (trees.length === 0) {
       return (
-        <ui.Box
-          header={<ui.Cell label>Kosmos BQ</ui.Cell>}
-          body={<ui.Placeholder text="Brak drzew. Wczytaj paczkę w pluginie BrainQuest." />}
-        />
+        <ui.Box header={<ui.Cell label>Kosmos BQ</ui.Cell>}
+          body={<ui.Placeholder text="Brak drzew. Wczytaj paczkę w pluginie BrainQuest." />} />
       )
     }
 
@@ -105,21 +132,17 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
         body={
           <ui.Stack>
             <ui.Field label="Drzewo">
-              <ui.Select
-                value={treeId || ''}
+              <ui.Select value={treeId || ''}
                 options={trees.map(t => ({ value: t.id, label: String(t.data.title) }))}
                 onChange={(e: { target: { value: string } }) =>
-                  useNav.setState({ treeId: e.target.value, selectedNid: null })}
-              />
+                  useNav.setState({ treeId: e.target.value, selectedNid: null })} />
             </ui.Field>
 
             <ui.Text muted size="xs">{nodes.length} węzłów · {groups.length} gałęzi</ui.Text>
 
             {groups.map(g => (
               <React.Fragment key={g.key}>
-                <ui.Cell label>
-                  <Dot color={g.color} />{g.label}
-                </ui.Cell>
+                <ui.Cell label><Dot color={g.color} />{g.label}</ui.Cell>
                 {g.nodes.map(n => {
                   const nid = String(n.data.nodeId)
                   return (
@@ -127,9 +150,14 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
                       active={selectedNid === nid}
                       label={String(n.data.title)}
                       onClick={() => selectByNid(treeId!, nid)}
-                    />
+                      action={<ui.RemoveButton onClick={() => {
+                        if (!confirm(`Usunąć węzeł „${n.data.title}"?`)) return
+                        store.remove(n.id)
+                        if (selectedNid === nid) useNav.setState({ selectedNid: null })
+                      }} />} />
                   )
                 })}
+                <AddRow placeholder={`+ węzeł w „${g.label}"`} onAdd={(t) => addNode(g.key, t)} />
               </React.Fragment>
             ))}
           </ui.Stack>
@@ -138,229 +166,207 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
     )
   }
 
-  // GraphView — używa wspólnego adapter'a @obieg-zero/bq-cosmos. Bez gating (reader mode: wszystko widoczne).
   function GraphView() {
     const { treeId, selectedNid, selectedLexId } = useNav()
     const data = useBqGraphData(store, treeId, { selectedMoonId: selectedLexId })
-
     if (data.rawNodes.length === 0) return <ui.Placeholder text="Drzewo nie ma węzłów" />
-
     return <CosmosGraph
-      nodes={data.nodes}
-      moons={data.moons}
-      edges={data.edges}
-      contextEdges={data.contextEdges}
-      branches={data.branches}
-      relTypes={data.relTypes}
-      selectedNid={selectedNid}
-      selectedMoonId={selectedLexId}
-      highlightedNids={data.highlightedNids}
-      relatedMoonIds={data.relatedMoonIds}
+      nodes={data.nodes} moons={data.moons} edges={data.edges}
+      contextEdges={data.contextEdges} branches={data.branches} relTypes={data.relTypes}
+      selectedNid={selectedNid} selectedMoonId={selectedLexId}
+      highlightedNids={data.highlightedNids} relatedMoonIds={data.relatedMoonIds}
       onSelectNode={(nid) => selectByNid(treeId!, nid)}
       onSelectMoon={selectByLex}
       onDeselect={() => useNav.setState({ selectedNid: null, selectedLexId: null })}
       contextBranchPrefix={CONTEXT_BRANCH_PREFIX}
-      placeholder={<ui.Placeholder text="Drzewo nie ma węzłów" />}
-    />
+      placeholder={<ui.Placeholder text="Drzewo nie ma węzłów" />} />
   }
 
-  function CenterPanel() {
-    return <ui.Page><GraphView /></ui.Page>
-  }
+  function CenterPanel() { return <ui.Page><GraphView /></ui.Page> }
 
-  const buildTerms = (lexs: PostRecord[]) =>
-    lexs.map(lex => ({ id: lex.id, term: String(lex.data.term) }))
+  function NodeEditor({ node, treeId }: { node: PostRecord; treeId: string }) {
+    const nid = String(node.data.nodeId)
+    const branches  = store.useChildren(treeId, 'branch')  as PostRecord[]
+    const relTypes  = store.useChildren(treeId, 'relType') as PostRecord[]
+    const allNodes  = store.useChildren(treeId, 'node')    as PostRecord[]
+    const allLexs   = store.useChildren(treeId, 'lexicon') as PostRecord[]
+    const allEdges  = store.useChildren(treeId, 'edge')    as PostRecord[]
+    const allLexNodes = store.usePosts('lexNode') as PostRecord[]
 
-  function SlidesViewer({ node, myLexs }: { node: PostRecord; myLexs: PostRecord[] }) {
-    const allContent = store.useChildren(node.id, 'content') as PostRecord[]
-    const slides = useMemo(() => allContent.filter(c => String(c.data.contentType) !== 'quiz'), [allContent])
-    const terms = useMemo(() => buildTerms(myLexs), [myLexs])
+    const myLexs = useMemo(() => {
+      const lexIds = new Set<string>()
+      for (const ln of allLexNodes) if (String(ln.data.nid) === nid) lexIds.add(ln.parentId)
+      return allLexs.filter(l => lexIds.has(l.id))
+    }, [allLexNodes, allLexs, nid])
+    const lexNodeFor = (lexId: string) =>
+      allLexNodes.find(ln => ln.parentId === lexId && String(ln.data.nid) === nid)
 
-    const [idx, setIdx] = useState(0)
-    const [loading, setLoading] = useState(false)
-    useEffect(() => { setIdx(0) }, [node.id])
+    const out = allEdges.filter(e => e.data.fromNid === nid)
+    const inc = allEdges.filter(e => e.data.toNid   === nid)
+    const titleOf = (n: string) =>
+      String(allNodes.find(x => String(x.data.nodeId) === n)?.data.title ?? n)
 
-    useEffect(() => {
-      const h = (sdk.shared.getState() as any)?.bqHelpers
-      if (!h?.loadNodeContent) return
-      setLoading(true)
-      h.loadNodeContent(node.parentId, String(node.data.nodeId)).finally(() => setLoading(false))
-    }, [node.id])
+    const branchOpts = [
+      { value: '', label: '— bez gałęzi —' },
+      ...branches.map(b => ({ value: String(b.data.key), label: String(b.data.label) })),
+    ]
+    const relOpts = relTypes.map(r => ({ value: String(r.data.key), label: String(r.data.label) }))
+    const nodeOpts = allNodes
+      .filter(n => String(n.data.nodeId) !== nid)
+      .map(n => ({ value: String(n.data.nodeId), label: String(n.data.title) }))
 
-    const safeIdx = Math.min(idx, Math.max(0, slides.length - 1))
-    const slide = slides[safeIdx]
+    const [edgeTo, setEdgeTo] = useState('')
+    const [edgeType, setEdgeType] = useState('')
+    useEffect(() => { if (!edgeType && relOpts[0]) setEdgeType(relOpts[0].value) }, [relOpts.length])
 
-    if (slides.length === 0) {
-      return <ui.Text size="xs" muted>{loading ? 'Wczytuję treści…' : 'Brak treści dla tego węzła.'}</ui.Text>
+    const addTerm = (term: string) => {
+      const lex = store.add('lexicon', { term, definition: '', category: '' }, { parentId: treeId })
+      store.add('lexNode', { nid }, { parentId: lex.id })
     }
+    const unlinkTerm = (lexId: string) => {
+      const ln = lexNodeFor(lexId)
+      if (ln) store.remove(ln.id)
+    }
+    const addEdge = () => {
+      if (!edgeTo || !edgeType) return
+      store.add('edge', { fromNid: nid, toNid: edgeTo, type: edgeType }, { parentId: treeId })
+      setEdgeTo('')
+    }
+
     return (
-      <ui.Stack gap="sm">
-        <ui.Row justify="between">
-          <ui.Text size="xs" muted>Slajd {safeIdx + 1} / {slides.length}</ui.Text>
-          <ui.Row>
-            <ui.Button size="xs" outline disabled={safeIdx <= 0}
-              onClick={() => setIdx(i => Math.max(0, i - 1))}>‹</ui.Button>
-            <ui.Button size="xs" outline disabled={safeIdx >= slides.length - 1}
-              onClick={() => setIdx(i => Math.min(slides.length - 1, i + 1))}>›</ui.Button>
-          </ui.Row>
+      <ui.Stack>
+        <EditField label="Tytuł" value={String(node.data.title)}
+          onSave={(v) => store.update(node.id, { title: v })} />
+        <ui.Field label="Gałąź">
+          <ui.Select value={String(node.data.branch || '')} options={branchOpts}
+            onChange={(e: { target: { value: string } }) =>
+              store.update(node.id, { branch: e.target.value })} />
+        </ui.Field>
+        <EditField label="Tier" value={String(node.data.tier ?? '')}
+          onSave={(v) => store.update(node.id, { tier: v })} />
+        <ui.Text size="xs" muted>id: {nid}</ui.Text>
+
+        <ui.Divider />
+
+        <ui.Cell label>Terminy ({myLexs.length})</ui.Cell>
+        {myLexs.map(l => (
+          <ui.ListItem key={l.id}
+            label={String(l.data.term)}
+            detail={String(l.data.definition || '').slice(0, 60)}
+            onClick={() => selectByLex(l.id)}
+            action={<ui.RemoveButton onClick={() => unlinkTerm(l.id)} />} />
+        ))}
+        <AddRow placeholder="+ termin" onAdd={addTerm} />
+
+        <ui.Divider />
+
+        <ui.Cell label>Wychodzące ({out.length})</ui.Cell>
+        {out.map(e => (
+          <ui.ListItem key={e.id}
+            label={titleOf(String(e.data.toNid))}
+            detail={String(e.data.type || '')}
+            onClick={() => selectByNid(treeId, String(e.data.toNid))}
+            action={<ui.RemoveButton onClick={() => store.remove(e.id)} />} />
+        ))}
+        <ui.Row>
+          <ui.Select value={edgeTo} options={[{ value: '', label: '— cel —' }, ...nodeOpts]}
+            onChange={(e: { target: { value: string } }) => setEdgeTo(e.target.value)} />
+          <ui.Select value={edgeType} options={relOpts}
+            onChange={(e: { target: { value: string } }) => setEdgeType(e.target.value)} />
+          <ui.Button size="xs" onClick={addEdge}>Dodaj</ui.Button>
         </ui.Row>
-        <ui.Markdown text={String(slide?.data.text || '')}
-          terms={terms} onTermClick={(id) => selectByLex(id)} />
+
+        <ui.Divider />
+
+        <ui.Cell label>Przychodzące ({inc.length})</ui.Cell>
+        {inc.map(e => (
+          <ui.ListItem key={e.id}
+            label={titleOf(String(e.data.fromNid))}
+            detail={String(e.data.type || '')}
+            onClick={() => selectByNid(treeId, String(e.data.fromNid))} />
+        ))}
+      </ui.Stack>
+    )
+  }
+
+  function LexEditor({ lex, treeId }: { lex: PostRecord; treeId: string }) {
+    const nodes = store.useChildren(treeId, 'node') as PostRecord[]
+    const allLexNodes = store.usePosts('lexNode') as PostRecord[]
+
+    const myNidSet = useMemo(() => {
+      const s = new Set<string>()
+      for (const ln of allLexNodes) if (ln.parentId === lex.id) s.add(String(ln.data.nid))
+      return s
+    }, [allLexNodes, lex.id])
+    const containing = nodes.filter(n => myNidSet.has(String(n.data.nodeId)))
+    const lexNodeFor = (nid: string) =>
+      allLexNodes.find(ln => ln.parentId === lex.id && String(ln.data.nid) === nid)
+    const nodeOpts = nodes
+      .filter(n => !myNidSet.has(String(n.data.nodeId)))
+      .map(n => ({ value: String(n.data.nodeId), label: String(n.data.title) }))
+
+    const [linkNid, setLinkNid] = useState('')
+    const addLink = () => {
+      if (!linkNid) return
+      store.add('lexNode', { nid: linkNid }, { parentId: lex.id })
+      setLinkNid('')
+    }
+    const removeLink = (nid: string) => {
+      const ln = lexNodeFor(nid)
+      if (ln) store.remove(ln.id)
+    }
+    const removeLex = () => {
+      if (!confirm(`Usunąć termin „${lex.data.term}"?`)) return
+      store.remove(lex.id)
+      useNav.setState({ selectedLexId: null })
+    }
+
+    return (
+      <ui.Stack>
+        <EditField label="Termin" value={String(lex.data.term)}
+          onSave={(v) => store.update(lex.id, { term: v })} />
+        <EditField label="Definicja" value={String(lex.data.definition || '')}
+          onSave={(v) => store.update(lex.id, { definition: v })} />
+        <EditField label="Kategoria" value={String(lex.data.category || '')}
+          onSave={(v) => store.update(lex.id, { category: v })} />
+        <ui.Row><ui.Button size="xs" outline onClick={removeLex}>Usuń termin</ui.Button></ui.Row>
+
+        <ui.Divider />
+
+        <ui.Cell label>Występuje w ({containing.length})</ui.Cell>
+        {containing.map(n => (
+          <ui.ListItem key={n.id}
+            label={String(n.data.title)}
+            detail={String(n.data.branch || '')}
+            onClick={() => selectByNid(treeId, String(n.data.nodeId))}
+            action={<ui.RemoveButton onClick={() => removeLink(String(n.data.nodeId))} />} />
+        ))}
+        <ui.Row>
+          <ui.Select value={linkNid} options={[{ value: '', label: '— węzeł —' }, ...nodeOpts]}
+            onChange={(e: { target: { value: string } }) => setLinkNid(e.target.value)} />
+          <ui.Button size="xs" onClick={addLink}>Powiąż</ui.Button>
+        </ui.Row>
       </ui.Stack>
     )
   }
 
   function RightPanel() {
     const { treeId, selectedNid, selectedLexId } = useNav()
-    const nodes = store.useChildren(treeId || '', 'node') as PostRecord[]
-    const edges = store.useChildren(treeId || '', 'edge') as PostRecord[]
+    const nodes    = store.useChildren(treeId || '', 'node')    as PostRecord[]
     const lexicons = store.useChildren(treeId || '', 'lexicon') as PostRecord[]
-    const allLexNodes = store.usePosts('lexNode') as PostRecord[]
 
-    const lexById = useMemo(() => new Map(lexicons.map(l => [l.id, l])), [lexicons])
-    const nodeByNid = useMemo(() => {
-      const m = new Map<string, PostRecord>()
-      for (const n of nodes) m.set(String(n.data.nodeId), n)
-      return m
-    }, [nodes])
+    if (!treeId) return <ui.Placeholder text="Wybierz drzewo" />
 
     if (selectedLexId) {
-      const lex = lexById.get(selectedLexId)
+      const lex = lexicons.find(l => l.id === selectedLexId)
       if (!lex) return <ui.Placeholder text="Termin nie istnieje" />
-      const myNidSet = new Set<string>()
-      for (const ln of allLexNodes) {
-        if (ln.parentId === selectedLexId) myNidSet.add(String(ln.data.nid))
-      }
-      const containingNodes = nodes.filter(n => myNidSet.has(String(n.data.nodeId)))
-
-      const counter = new Map<string, number>()
-      for (const ln of allLexNodes) {
-        if (ln.parentId === selectedLexId) continue
-        if (!myNidSet.has(String(ln.data.nid))) continue
-        counter.set(ln.parentId, (counter.get(ln.parentId) || 0) + 1)
-      }
-      const related: { lex: PostRecord; count: number }[] = []
-      for (const [lexId, count] of counter) {
-        const l = lexById.get(lexId)
-        if (l) related.push({ lex: l, count })
-      }
-      related.sort((a, b) => b.count - a.count)
-
-      return (
-        <ui.Page>
-          <ui.Stack>
-            <ui.Heading
-              title={String(lex.data.term)}
-              subtitle={String(lex.data.category || 'termin')}
-            />
-            <ui.Text size="sm">{String(lex.data.definition || '—')}</ui.Text>
-            <ui.Divider />
-            <ui.Cell label>Występuje w ({containingNodes.length})</ui.Cell>
-            {containingNodes.length === 0 && <ui.Text muted size="xs">brak</ui.Text>}
-            {containingNodes.map(n => (
-              <ui.ListItem key={n.id}
-                label={String(n.data.title)}
-                detail={String(n.data.branch || '')}
-                onClick={() => selectByNid(treeId!, String(n.data.nodeId))}
-              />
-            ))}
-            <ui.Divider />
-            <ui.Cell label>Powiązane terminy ({related.length})</ui.Cell>
-            {related.length === 0 && <ui.Text muted size="xs">brak współwystępujących</ui.Text>}
-            {related.map(r => (
-              <ui.ListItem key={r.lex.id}
-                label={<><Dot color={catColor(String(r.lex.data.category || ''))} />{String(r.lex.data.term)}</>}
-                detail={`${r.count} wspólnych węzłów · ${String(r.lex.data.category || '')}`}
-                onClick={() => selectByLex(r.lex.id)}
-              />
-            ))}
-          </ui.Stack>
-        </ui.Page>
-      )
+      return <ui.Page><LexEditor lex={lex} treeId={treeId} /></ui.Page>
     }
 
-    const node = selectedNid ? nodeByNid.get(selectedNid) : undefined
+    const node = selectedNid ? nodes.find(n => String(n.data.nodeId) === selectedNid) : undefined
     if (!node) return <ui.Placeholder text="Wybierz węzeł lub termin" />
 
-    const myLexs: PostRecord[] = []
-    for (const ln of allLexNodes) {
-      if (String(ln.data.nid) !== selectedNid) continue
-      const l = lexById.get(ln.parentId)
-      if (l) myLexs.push(l)
-    }
-    const lexsByCat = new Map<string, PostRecord[]>()
-    for (const l of myLexs) {
-      const c = String(l.data.category || 'inne')
-      if (!lexsByCat.has(c)) lexsByCat.set(c, [])
-      lexsByCat.get(c)!.push(l)
-    }
-
-    const titleOf = (nid: string) => String(nodeByNid.get(nid)?.data.title ?? nid)
-    const out = edges.filter(e => e.data.fromNid === selectedNid)
-    const inc = edges.filter(e => e.data.toNid   === selectedNid)
-
-    return (
-      <ui.Page>
-        <ui.Stack>
-          <ui.Heading title={String(node.data.title)} subtitle={`#${selectedNid}`} />
-          <ui.Row>
-            {node.data.branch ? <ui.Badge>{String(node.data.branch)}</ui.Badge> : null}
-            {(() => {
-              const lbl = tierLabel(String(node.data.branch || ''), node.data.tier)
-              return lbl ? <ui.Text size="xs" muted>{lbl}</ui.Text> : null
-            })()}
-          </ui.Row>
-
-          <ui.Divider />
-
-          <SlidesViewer node={node} myLexs={myLexs} />
-
-          <ui.Divider />
-
-          <ui.Cell label>Terminy ({myLexs.length})</ui.Cell>
-          {myLexs.length === 0 && <ui.Text muted size="xs">brak</ui.Text>}
-          {Array.from(lexsByCat.entries()).map(([cat, ls]) => (
-            <React.Fragment key={cat}>
-              <ui.Row>
-                <Dot color={catColor(cat)} />
-                <ui.Text size="xs" muted>{cat} ({ls.length})</ui.Text>
-              </ui.Row>
-              {ls.map(l => (
-                <ui.ListItem key={l.id}
-                  label={String(l.data.term)}
-                  detail={String(l.data.definition || '').slice(0, 60)}
-                  onClick={() => selectByLex(l.id)}
-                />
-              ))}
-            </React.Fragment>
-          ))}
-
-          <ui.Divider />
-
-          <ui.Cell label>Wychodzące ({out.length})</ui.Cell>
-          {out.length === 0 && <ui.Text muted size="xs">brak</ui.Text>}
-          {out.map(e => (
-            <ui.ListItem key={e.id}
-              label={titleOf(String(e.data.toNid))}
-              detail={e.data.type ? String(e.data.type) : undefined}
-              onClick={() => selectByNid(treeId!, String(e.data.toNid))}
-            />
-          ))}
-
-          <ui.Divider />
-
-          <ui.Cell label>Przychodzące ({inc.length})</ui.Cell>
-          {inc.length === 0 && <ui.Text muted size="xs">brak</ui.Text>}
-          {inc.map(e => (
-            <ui.ListItem key={e.id}
-              label={titleOf(String(e.data.fromNid))}
-              detail={e.data.type ? String(e.data.type) : undefined}
-              onClick={() => selectByNid(treeId!, String(e.data.fromNid))}
-            />
-          ))}
-        </ui.Stack>
-      </ui.Page>
-    )
+    return <ui.Page><NodeEditor node={node} treeId={treeId} /></ui.Page>
   }
 
   sdk.registerView('cosmos.left',   { slot: 'left',   component: LeftPanel })
@@ -370,9 +376,9 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
   return {
     id: 'cosmos-bq',
     label: 'Kosmos BQ',
-    description: 'Kosmiczny widok grafu BQ — orbity gałęzi + księżyce terminów (renderer: @obieg-zero/cosmos-graph)',
+    description: 'Edytor grafu BQ — orbity gałęzi + księżyce terminów. Edycja danych w sidebarach (renderer: @obieg-zero/cosmos-graph)',
     icon: Share2 || GitBranch,
-    version: '0.6.0',
+    version: '0.7.0',
   }
 }
 
