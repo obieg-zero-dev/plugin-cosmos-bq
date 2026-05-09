@@ -184,6 +184,43 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
 
   function CenterPanel() { return <ui.Page><GraphView /></ui.Page> }
 
+  // Read-only podgląd slajdów {{}} klikalnych — auto-load content przez bqLoader.
+  function SlidesPreview({ node, myLexs }: { node: PostRecord; myLexs: PostRecord[] }) {
+    const allContent = store.useChildren(node.id, 'content') as PostRecord[]
+    const slides = useMemo(() => allContent.filter(c => String(c.data.contentType) !== 'quiz'), [allContent])
+    const terms = useMemo(() => myLexs.map(l => ({ id: l.id, term: String(l.data.term) })), [myLexs])
+    const [idx, setIdx] = useState(0)
+    const [loading, setLoading] = useState(false)
+    useEffect(() => { setIdx(0) }, [node.id])
+    useEffect(() => {
+      const bq = (sdk.shared.getState() as any)?.bqLoader
+      if (!bq?.loadNodeContent) return
+      setLoading(true)
+      bq.loadNodeContent(node.parentId, String(node.data.nodeId)).finally(() => setLoading(false))
+    }, [node.id])
+
+    if (slides.length === 0) {
+      return <ui.Text size="xs" muted>{loading ? 'Wczytuję treści…' : 'Brak slajdów dla tego węzła.'}</ui.Text>
+    }
+    const safeIdx = Math.min(idx, Math.max(0, slides.length - 1))
+    const slide = slides[safeIdx]
+    return (
+      <ui.Stack gap="sm">
+        <ui.Row justify="between">
+          <ui.Text size="xs" muted>Slajd {safeIdx + 1} / {slides.length}</ui.Text>
+          <ui.Row>
+            <ui.Button size="xs" outline disabled={safeIdx <= 0}
+              onClick={() => setIdx(i => Math.max(0, i - 1))}>‹</ui.Button>
+            <ui.Button size="xs" outline disabled={safeIdx >= slides.length - 1}
+              onClick={() => setIdx(i => Math.min(slides.length - 1, i + 1))}>›</ui.Button>
+          </ui.Row>
+        </ui.Row>
+        <ui.Markdown text={String(slide?.data.text || '')}
+          terms={terms} onTermClick={(id: string) => selectByLex(id)} />
+      </ui.Stack>
+    )
+  }
+
   function NodeEditor({ node, treeId }: { node: PostRecord; treeId: string }) {
     const nid = String(node.data.nodeId)
     const branches  = store.useChildren(treeId, 'branch')  as PostRecord[]
@@ -245,6 +282,10 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
         <EditField label="Tier" value={String(node.data.tier ?? '')}
           onSave={(v) => store.update(node.id, { tier: v })} />
         <ui.Text size="xs" muted>id: {nid}</ui.Text>
+
+        <ui.Divider />
+        <ui.Cell label>Slajdy</ui.Cell>
+        <SlidesPreview node={node} myLexs={myLexs} />
 
         <ui.Divider />
 

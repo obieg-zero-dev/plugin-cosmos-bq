@@ -4441,6 +4441,68 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
   function CenterPanel() {
     return /* @__PURE__ */ jsx(ui.Page, { children: /* @__PURE__ */ jsx(GraphView, {}) });
   }
+  function SlidesPreview({ node, myLexs }) {
+    const allContent = store.useChildren(node.id, "content");
+    const slides = useMemo2(() => allContent.filter((c2) => String(c2.data.contentType) !== "quiz"), [allContent]);
+    const terms = useMemo2(() => myLexs.map((l) => ({ id: l.id, term: String(l.data.term) })), [myLexs]);
+    const [idx, setIdx] = useState2(0);
+    const [loading, setLoading] = useState2(false);
+    useEffect2(() => {
+      setIdx(0);
+    }, [node.id]);
+    useEffect2(() => {
+      var _a;
+      const bq = (_a = sdk.shared.getState()) == null ? void 0 : _a.bqLoader;
+      if (!(bq == null ? void 0 : bq.loadNodeContent)) return;
+      setLoading(true);
+      bq.loadNodeContent(node.parentId, String(node.data.nodeId)).finally(() => setLoading(false));
+    }, [node.id]);
+    if (slides.length === 0) {
+      return /* @__PURE__ */ jsx(ui.Text, { size: "xs", muted: true, children: loading ? "Wczytuję treści…" : "Brak slajdów dla tego węzła." });
+    }
+    const safeIdx = Math.min(idx, Math.max(0, slides.length - 1));
+    const slide = slides[safeIdx];
+    return /* @__PURE__ */ jsxs(ui.Stack, { gap: "sm", children: [
+      /* @__PURE__ */ jsxs(ui.Row, { justify: "between", children: [
+        /* @__PURE__ */ jsxs(ui.Text, { size: "xs", muted: true, children: [
+          "Slajd ",
+          safeIdx + 1,
+          " / ",
+          slides.length
+        ] }),
+        /* @__PURE__ */ jsxs(ui.Row, { children: [
+          /* @__PURE__ */ jsx(
+            ui.Button,
+            {
+              size: "xs",
+              outline: true,
+              disabled: safeIdx <= 0,
+              onClick: () => setIdx((i) => Math.max(0, i - 1)),
+              children: "‹"
+            }
+          ),
+          /* @__PURE__ */ jsx(
+            ui.Button,
+            {
+              size: "xs",
+              outline: true,
+              disabled: safeIdx >= slides.length - 1,
+              onClick: () => setIdx((i) => Math.min(slides.length - 1, i + 1)),
+              children: "›"
+            }
+          )
+        ] })
+      ] }),
+      /* @__PURE__ */ jsx(
+        ui.Markdown,
+        {
+          text: String((slide == null ? void 0 : slide.data.text) || ""),
+          terms,
+          onTermClick: (id2) => selectByLex(id2)
+        }
+      )
+    ] });
+  }
   function NodeEditor({ node, treeId }) {
     const nid = String(node.data.nodeId);
     const branches = store.useChildren(treeId, "branch");
@@ -4514,6 +4576,9 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
         "id: ",
         nid
       ] }),
+      /* @__PURE__ */ jsx(ui.Divider, {}),
+      /* @__PURE__ */ jsx(ui.Cell, { label: true, children: "Slajdy" }),
+      /* @__PURE__ */ jsx(SlidesPreview, { node, myLexs }),
       /* @__PURE__ */ jsx(ui.Divider, {}),
       /* @__PURE__ */ jsxs(ui.Cell, { label: true, children: [
         "Terminy (",
