@@ -172,7 +172,7 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
     if (data.rawNodes.length === 0) return <ui.Placeholder text="Drzewo nie ma węzłów" />
     return <CosmosGraph
       nodes={data.nodes} moons={data.moons} edges={data.edges}
-      contextEdges={data.contextEdges} branches={data.branches} relTypes={data.relTypes}
+      branches={data.branches} relTypes={data.relTypes}
       selectedNid={selectedNid} selectedMoonId={selectedLexId}
       highlightedNids={data.highlightedNids} relatedMoonIds={data.relatedMoonIds}
       onSelectNode={(nid) => selectByNid(treeId!, nid)}
