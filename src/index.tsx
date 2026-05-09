@@ -283,9 +283,9 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
           onSave={(v) => store.update(node.id, { tier: v })} />
         <ui.Text size="xs" muted>id: {nid}</ui.Text>
 
-        <ui.Divider />
-        <ui.Cell label>Slajdy</ui.Cell>
-        <SlidesPreview node={node} myLexs={myLexs} />
+        <ui.Box
+          header={<ui.Cell label>Slajdy</ui.Cell>}
+          body={<SlidesPreview node={node} myLexs={myLexs} />} />
 
         <ui.Divider />
 
@@ -396,18 +396,25 @@ const plugin: PluginFactory = ({ React, ui, store, sdk, icons }) => {
     const nodes    = store.useChildren(treeId || '', 'node')    as PostRecord[]
     const lexicons = store.useChildren(treeId || '', 'lexicon') as PostRecord[]
 
-    if (!treeId) return <ui.Placeholder text="Wybierz drzewo" />
+    if (!treeId) return <ui.Box header={<ui.Cell label>Edytor</ui.Cell>}
+      body={<ui.Placeholder text="Wybierz drzewo" />} />
 
     if (selectedLexId) {
       const lex = lexicons.find(l => l.id === selectedLexId)
-      if (!lex) return <ui.Placeholder text="Termin nie istnieje" />
-      return <ui.Page><LexEditor lex={lex} treeId={treeId} /></ui.Page>
+      if (!lex) return <ui.Box header={<ui.Cell label>Termin</ui.Cell>}
+        body={<ui.Placeholder text="Termin nie istnieje" />} />
+      return <ui.Box
+        header={<ui.Cell label>Termin: {String(lex.data.term)}</ui.Cell>}
+        body={<LexEditor lex={lex} treeId={treeId} />} />
     }
 
     const node = selectedNid ? nodes.find(n => String(n.data.nodeId) === selectedNid) : undefined
-    if (!node) return <ui.Placeholder text="Wybierz węzeł lub termin" />
+    if (!node) return <ui.Box header={<ui.Cell label>Edytor</ui.Cell>}
+      body={<ui.Placeholder text="Wybierz węzeł lub termin" />} />
 
-    return <ui.Page><NodeEditor node={node} treeId={treeId} /></ui.Page>
+    return <ui.Box
+      header={<ui.Cell label>Węzeł: {String(node.data.title)}</ui.Cell>}
+      body={<NodeEditor node={node} treeId={treeId} />} />
   }
 
   sdk.registerView('cosmos.left',   { slot: 'left',   component: LeftPanel })

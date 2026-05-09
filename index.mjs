@@ -4576,9 +4576,13 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
         "id: ",
         nid
       ] }),
-      /* @__PURE__ */ jsx(ui.Divider, {}),
-      /* @__PURE__ */ jsx(ui.Cell, { label: true, children: "Slajdy" }),
-      /* @__PURE__ */ jsx(SlidesPreview, { node, myLexs }),
+      /* @__PURE__ */ jsx(
+        ui.Box,
+        {
+          header: /* @__PURE__ */ jsx(ui.Cell, { label: true, children: "Slajdy" }),
+          body: /* @__PURE__ */ jsx(SlidesPreview, { node, myLexs })
+        }
+      ),
       /* @__PURE__ */ jsx(ui.Divider, {}),
       /* @__PURE__ */ jsxs(ui.Cell, { label: true, children: [
         "Terminy (",
@@ -4733,15 +4737,51 @@ const plugin = ({ React, ui, store, sdk, icons }) => {
     const { treeId, selectedNid, selectedLexId } = useNav();
     const nodes = store.useChildren(treeId || "", "node");
     const lexicons = store.useChildren(treeId || "", "lexicon");
-    if (!treeId) return /* @__PURE__ */ jsx(ui.Placeholder, { text: "Wybierz drzewo" });
+    if (!treeId) return /* @__PURE__ */ jsx(
+      ui.Box,
+      {
+        header: /* @__PURE__ */ jsx(ui.Cell, { label: true, children: "Edytor" }),
+        body: /* @__PURE__ */ jsx(ui.Placeholder, { text: "Wybierz drzewo" })
+      }
+    );
     if (selectedLexId) {
       const lex = lexicons.find((l) => l.id === selectedLexId);
-      if (!lex) return /* @__PURE__ */ jsx(ui.Placeholder, { text: "Termin nie istnieje" });
-      return /* @__PURE__ */ jsx(ui.Page, { children: /* @__PURE__ */ jsx(LexEditor, { lex, treeId }) });
+      if (!lex) return /* @__PURE__ */ jsx(
+        ui.Box,
+        {
+          header: /* @__PURE__ */ jsx(ui.Cell, { label: true, children: "Termin" }),
+          body: /* @__PURE__ */ jsx(ui.Placeholder, { text: "Termin nie istnieje" })
+        }
+      );
+      return /* @__PURE__ */ jsx(
+        ui.Box,
+        {
+          header: /* @__PURE__ */ jsxs(ui.Cell, { label: true, children: [
+            "Termin: ",
+            String(lex.data.term)
+          ] }),
+          body: /* @__PURE__ */ jsx(LexEditor, { lex, treeId })
+        }
+      );
     }
     const node = selectedNid ? nodes.find((n) => String(n.data.nodeId) === selectedNid) : void 0;
-    if (!node) return /* @__PURE__ */ jsx(ui.Placeholder, { text: "Wybierz węzeł lub termin" });
-    return /* @__PURE__ */ jsx(ui.Page, { children: /* @__PURE__ */ jsx(NodeEditor, { node, treeId }) });
+    if (!node) return /* @__PURE__ */ jsx(
+      ui.Box,
+      {
+        header: /* @__PURE__ */ jsx(ui.Cell, { label: true, children: "Edytor" }),
+        body: /* @__PURE__ */ jsx(ui.Placeholder, { text: "Wybierz węzeł lub termin" })
+      }
+    );
+    return /* @__PURE__ */ jsx(
+      ui.Box,
+      {
+        header: /* @__PURE__ */ jsxs(ui.Cell, { label: true, children: [
+          "Węzeł: ",
+          String(node.data.title)
+        ] }),
+        body: /* @__PURE__ */ jsx(NodeEditor, { node, treeId })
+      }
+    );
   }
   sdk.registerView("cosmos.left", { slot: "left", component: LeftPanel });
   sdk.registerView("cosmos.center", { slot: "center", component: CenterPanel });
